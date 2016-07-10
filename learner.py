@@ -184,10 +184,10 @@ if __name__ == "__main__":
                 for coverage_item in coverage_list:
                     rule_number, pattern = search_ambiguous(ambiguous_rules, coverage_item)
                     if rule_number is not None:
-                        #output_stream.write('{}\n{}\n'.format(sent_count, sent_line))
+                        #print('{}\n{}\n'.format(sent_count, sent_line))
                         #for item in parsed_line:
-                        #    output_stream.write(str(item) + '\n')
-                        #output_stream.write(coverage.coverage_to_groups(coverage_item) + '\n\n')
+                        #    print(str(item) + '\n')
+                        #print(coverage.coverage_to_groups(coverage_item) + '\n\n')
                         weights_list = get_weights(ambiguous_rules[rule_number], pattern, sent_line, tixfname, binfname, output_stream)
                         #print(weights_list)
                         for translation, score, rule_id in weights_list:
