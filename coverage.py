@@ -2,6 +2,7 @@
 
 import re, sys
 from optparse import OptionParser, OptionGroup
+from time import clock
 
 try: # see if lxml is installed
     from lxml import etree as ET
@@ -274,7 +275,10 @@ def process_line(line, cat_dict, pattern_FST, output_stream, out_all, out_lrlm, 
     """
     if print_out:
         output_stream.write(line + '\n')
+    btime = clock()
     line = get_cats_by_line(line, cat_dict)
+    #print('{:f} cats'.format(clock() - btime))
+    btime = clock()
     coverage_list = calculate_coverage_r(pattern_FST, line, pattern_FST)
     parsed_coverages = []
     if coverage_list != []:
@@ -291,6 +295,7 @@ def process_line(line, cat_dict, pattern_FST, output_stream, out_all, out_lrlm, 
     else:
         if print_out:
             output_stream.write('No coverage found\n')
+    #print('{:f} coverages'.format(clock() - btime))
     return parsed_coverages, line
 
 def get_options():
