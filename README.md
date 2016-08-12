@@ -41,6 +41,3 @@ Be advised that you might need disk space for your language model rougly half of
 ```
 ./twlearner.py
 ```
-
-## Known issues
-So far, learner script runs out of memory or something at approx. 7500 input lines while looking for ambiguous sentences and translating them and gets killed by the system.

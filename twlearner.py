@@ -1,6 +1,6 @@
 #! /usr/bin/python3
 
-import re, sys, os, pipes
+import re, sys, os, pipes, gc
 from math import exp
 import coverage
 import kenlm
@@ -51,9 +51,10 @@ def load_rules(pair_data, source, target):
     tixbasepath = os.path.join(pair_data, tixbasename)
     binbasepath = os.path.join(pair_data, '{}-{}'.format(source, target))
     tixfname = '.'.join((tixbasepath, 't1x'))
-    cat_dict, pattern_FST, ambiguous_rules = coverage.prepare(tixfname)
+    cat_dict, rules, ambiguous_rules, rule_id_map = coverage.prepare(tixfname)
+    pattern_FST = coverage.FST(rules)
 
-    return tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules
+    return tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules, rule_id_map
 
 def make_prefix(corpus, data_folder):
     """
@@ -103,18 +104,18 @@ def clean_tagged(corpus, prefix):
     print('Done in {:.2f}'.format(clock() - btime))
     return ofname
 
-def search_ambiguous(ambiguous_rules, coverage_item):
+def search_ambiguous(ambiguous_rules, coverage):
     """
     Look for patterns covered by one of the ambiguous rules in ambiguous_rules.
     If found, return the rules and their patterns.
     """
     pattern_list = []
-    for i, part in enumerate(coverage_item):
-        if part[1][0] in ambiguous_rules:
-            pattern_list.append((i, part[1][0], tuple(part[0])))
+    for i, part in enumerate(coverage):
+        if part[1] in ambiguous_rules:
+            pattern_list.append((i, part[1], tuple(part[0])))
     return pattern_list
 
-def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tixfname, binfname):
+def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tixfname, binfname, rule_id_map):
     """
     """
     print('Looking for ambiguous sentences and translating them.')
@@ -124,32 +125,53 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
     ofname = '{}-ambiguous.txt'.format(prefix)
     #sfname = '{}-sentences.txt'.format(prefix)
 
+    lines_count, total_sents_count, ambig_sents_count, ambig_chunks_count = 0, 0, 0, 0
+    botched_coverages = 0
+    lbtime = clock()
+
     with open(corpus, 'r', encoding='utf-8') as ifile, \
          open(ofname, 'w', encoding='utf-8') as ofile: #,\
          #open(sfname, 'w', encoding='utf-8') as sfile:
         for line in ifile:
+            lines_count += 1
+            if lines_count % 1000 == 0:
+                print('\n{} total lines\n{} total sentences\n{} ambiguous sentences\n{} ambiguous chunks\n{} botched coverages\nanother {:.4f} elapsed'.format(lines_count, total_sents_count, ambig_sents_count, ambig_chunks_count, botched_coverages, clock() - lbtime))
+                gc.collect()
+                lbtime = clock()
             # look at each sentence in line
             for sent_match in sent_re.finditer(line.strip()):
+                total_sents_count += 1
+                #print(total_sents_count, sent_match.group(0))
                 # get coverages
-                coverage_list, parsed_line = coverage.process_line(sent_match.group(0),
-                                                        cat_dict, pattern_FST,
-                                                        None, False, True, False)
-                if coverage_list != []:
+                coverage_list = pattern_FST.get_lrlm(sent_match.group(0), cat_dict)
+                if coverage_list == []:
+                    botched_coverages += 1
+                else:
                     coverage_item = coverage_list[0]
                     # look for ambiguous chunks
                     pattern_list = search_ambiguous(ambiguous_rules, coverage_item)
                     if pattern_list != []:
+                        #print(coverage_item)
+                        #print()
+                        #print(pattern_list)
+                        #print()
+                        ambig_sents_count += 1
                         # segment the sentence into parts each containing one ambiguous chunk
                         sentence_segments, prev = [], 0
                         for i, rule_group_number, pattern in pattern_list:
+                            ambig_chunks_count += 1
                             piece_of_line = '^' + '$ ^'.join(sum([chunk[0] for chunk in coverage_item[prev:i+1]], [])) + '$'
                             sentence_segments.append([rule_group_number, pattern, piece_of_line])
                             prev = i+1
+
                         if sentence_segments != []:
                             # add up the tail of the sentence
                             if prev <= len(coverage_item):
                                 piece_of_line = ' ^' + '$ ^'.join(sum([chunk[0] for chunk in coverage_item[prev:]], [])) + '$'
                                 sentence_segments[-1][2] += piece_of_line
+
+                            #print(sentence_segments)
+                            #print()
 
                             # first, translate each segment with default rules
                             for sentence_segment in sentence_segments:
@@ -160,13 +182,13 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
                             for j, sentence_segment in enumerate(sentence_segments):
                                 translation_list = translate_ambiguous(ambiguous_rules[sentence_segment[0]], 
                                                                        sentence_segment[1], sentence_segment[2],
-                                                                       tixfname, binfname)
+                                                                       tixfname, binfname, rule_id_map)
                                 output_list = []
                                 for rule, translation in translation_list:
                                     translated_sentence = ' '.join(sentence_segment[3] for sentence_segment in sentence_segments[:j]) +\
                                                           ' ' + translation + ' ' +\
                                                           ' '.join(sentence_segment[3] for sentence_segment in sentence_segments[j+1:])
-                                    output_list.append('{}\t{}'.format(rule[0], translated_sentence.strip(' ')))
+                                    output_list.append('{}\t{}'.format(rule, translated_sentence.strip(' ')))
                                 # store results to a file
                                 # first, print rule group number, pattern, and number of rules in the group
                                 print('{}\t^{}$\t{}'.format(sentence_segment[0], '$ ^'.join(sentence_segment[1]), len(output_list)), file=ofile)
@@ -199,7 +221,7 @@ def translate(sent_line, tixfname, binfname, weightsfname=None):
     pipefile.close()
     return apertium_re.sub('', open('pipefile').read().lower())
 
-def translate_ambiguous(rule_group, pattern, sent_line, tixfname, binfname):
+def translate_ambiguous(rule_group, pattern, sent_line, tixfname, binfname, rule_id_map):
     """
     Translate sent_line for each rule in rule_group.
     """
@@ -211,7 +233,7 @@ def translate_ambiguous(rule_group, pattern, sent_line, tixfname, binfname):
         # create weights file favoring that rule
         weights_line = weights_head + '  <rule-group>\n'
         for rule in rule_group:
-            weights_line += '    <rule id="{}">\n'.format(rule[1])
+            weights_line += '    <rule id="{}">\n'.format(rule_id_map[str(rule)])
             if rule == focus_rule:
                 weights_line += pattern
             weights_line += '    </rule>\n'
@@ -247,7 +269,7 @@ def score_sentences(ambig_sentences_fname, model, prefix):
                 for i in range(int(rulecount)):
                     line = ifile.readline()
                     rule_number, sentence = line.rstrip('\n').split('\t')
-                    score = exp(model.score(sentence, bos = True, eos = True))
+                    score = exp(model.score(normalize(sentence), bos = True, eos = True))
                     weights_list.append((rule_number, score))
                     total += score
                     sentence_counter += 1
@@ -322,20 +344,18 @@ if __name__ == "__main__":
                               twlconfig.data_folder)
 
     # clean up tagged corpus
-    clean_fname = clean_tagged(tagged_fname, prefix)
+    #clean_fname = clean_tagged(tagged_fname, prefix)
 
     # load rules, build rule FST
-    tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules = \
+    tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules, rule_id_map = \
         load_rules(twlconfig.apertium_pair_data, twlconfig.source, twlconfig.target)
-    rule_map = {}
-    for rule_group in ambiguous_rules.values():
-        rule_map.update({rule[0]:rule[1] for rule in rule_group})
 
     # detect and store sentences with ambiguity
-    ambig_sentences_fname = detect_ambiguous(clean_fname, prefix, 
+    ambig_sentences_fname = detect_ambiguous(tagged_fname, prefix, 
                                              cat_dict, pattern_FST,
                                              ambiguous_rules,
-                                             tixbasepath, binbasepath)
+                                             tixbasepath, binbasepath,
+                                             rule_id_map)
 
     # load language model
     print('Loading language model.')
@@ -347,6 +367,6 @@ if __name__ == "__main__":
     scores_fname = score_sentences(ambig_sentences_fname, model, prefix)
 
     # sum up weigths for rule-pattern and make final xml
-    make_xml_rules(scores_fname, prefix, rule_map)
+    make_xml_rules(scores_fname, prefix, rule_id_map)
 
     print('Performed in {:.2f}'.format(clock() - tbtime))

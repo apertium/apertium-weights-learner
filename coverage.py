@@ -100,203 +100,14 @@ def get_cats_by_LU(LU, cat_dict, lemma):
         return cat_list
     return default_cat
 
-def get_pattern_FST(transtree):
-    """
-    From xml tree with transfer rules,
-    build an improvised pattern FST using nested dictionaries.
-    """
-    root = transtree.getroot()
-    pattern_FST = [{}, None]
-    ambiguous_rules = {}
-    for i, rule in enumerate(root.find('section-rules').findall('rule')):
-        curr_level = pattern_FST
-        for pattern_item in rule.find('pattern').findall('pattern-item'):
-            item_cat = pattern_item.attrib['n']
-            if not item_cat in curr_level[0]:
-                curr_level[0][item_cat] = [{}, None]
-            curr_level = curr_level[0][item_cat]
-        if curr_level[1] is not None:
-            # the rule is ambiguous as the pattern has already been seen
-            ambiguous_rules.setdefault(curr_level[1][0], [(curr_level[1][0], curr_level[1][2])])
-            ambiguous_rules[curr_level[1][0]].append((str(i), rule.attrib.get('id', '')))
-        else:
-            curr_level[1] = (str(i), rule.attrib.get('comment', ''), rule.attrib.get('id', ''))
-    return pattern_FST, ambiguous_rules
-
-def rebuild_pattern_r(pattern_FST):
-    """
-    Recursively rebuild all patterns from pattern FST, just in case.
-    """
-    rule_list = []
-    if pattern_FST[0] != {}:
-        for pattern_item in pattern_FST[0]:
-            pattern_list = [[pattern_item] + pattern_tail 
-                for pattern_tail in rebuild_pattern_r(pattern_FST[0][pattern_item])]
-            rule_list.extend(pattern_list)
-    if pattern_FST[1] is not None:
-        rule_list.append([pattern_FST[1]])
-    return rule_list
-
-def output_patterns(pattern_FST):
-    """
-    Output all patterns to file in linear fashion.
-    """
-    pattern_list = rebuild_pattern_r(pattern_FST)
-    pattern_list.sort(key=lambda x: int(x[-1][0]))
-    with open('rules.txt', 'w', encoding='utf-8') as rfile:
-        for pattern in pattern_list:
-            rfile.write('{: <4}\n  {}\n  {}\n'.format(pattern[-1][0], ' '.join(pattern[:-1]), pattern[-1][1]))
-
-def calculate_coverage_r(pattern_FST, line, state):
-    """
-    Recursively find all possible pattern combinations
-    for preprocessed line where each word has a list
-    of categories assigned to it.
-    
-    Output is a list of lists, each list consists
-    of elements of (type, word/num, cat/comm),
-    where type is either 'w' (word) or 'r' (rule).
-    
-    If type is 'w' then the next two items are the word
-    and the category assigned to it respectively.
-
-    If type is 'r' then the next two items are the rule
-    number and its commentary from the xml representation.
-
-    The rule entry in the list marks the end of pattern
-    for this rule.
-
-    line is current line with ambiguous categories assigned
-    to words, state is a state of our makeshift FST represented
-    by its level.
-    """
-    # the end of the line
-    if not line:
-        # check if it's also the end of pattern
-        if state[1] is not None:
-            return [[('r',) + state[1]]]
-        return []
-
-    coverage_list = []
-    current_item = line[0]
-
-    # continue the pattern for each category assigned to current word
-    for cat in (current_item[1] & set(state[0].keys())):
-        pattern_list = [[('w', current_item[0], cat)] + pattern_tail 
-                            for pattern_tail 
-                                in calculate_coverage_r(
-                                        pattern_FST,
-                                        line[1:],
-                                        state[0][cat])]
-        coverage_list.extend(pattern_list)
-
-    # check if it can be an end of the pattern
-    if state[1] is not None:
-        # if so, also try to start new pattern from here
-        pattern_list = [[('r',) + state[1]] + pattern_tail 
-                            for pattern_tail 
-                                in calculate_coverage_r(
-                                        pattern_FST, 
-                                        line, 
-                                        pattern_FST)]
-        coverage_list.extend(pattern_list)
-    return coverage_list
-
-def parse_coverage_list(coverage_list):
-    """
-    Get list of lists representing coverages
-    (as output by calculate_coverage_r) and return
-    a list of regrouped coverages.
-    """
-    return [parse_coverage(coverage) for coverage in coverage_list]
-
-def parse_coverage(coverage):
-    """
-    Get a list representing one coverage
-    (as output by calculate_coverage_r) and return
-    a list where elements are groups (list_of_words, rule).
-    """
-    groups = []
-    current_group = []
-    for token in coverage:
-        if token[0] == 'w':
-            current_group.append(token[1])
-        elif token[0] == 'r':
-            groups.append((current_group, token[1:]))
-            current_group = []
-    return groups
-
-def coverages_to_groups(coverage_list):
-    output_list = []
-    for coverage in coverage_list:
-        output_list.append(coverage_to_groups(coverage))
-    return output_list
-
-def output_all_coverages(coverage_list, output_stream):
-    for coverage in coverage_list:
-        output_stream.write(coverage_to_groups(coverage) + '\n')
-    output_stream.write('\n')
-
-def coverage_to_groups(coverage):
-    """
-    Output coverage with groups.
-    """
-    output_str = '' 
-    for group in coverage:
-        output_str = output_str + \
-            ' ({} {})'.format(group[1][0], ' '.join(group[0]))
-    return output_str.strip()
-
-def signature(coverage):
-    """
-    Get coverage signature which is just a tuple
-    of lengths of groups comprising the coverage.
-    """
-    return tuple([len(group[0]) for group in coverage])
-
-def get_LRLM(coverage_list):
-    """
-    Get only LRLM coverages from list of all coverages
-    by sorting them lexicographycally by their signatures.
-    """
-    sorted_list = sorted(coverage_list, key=signature, reverse=True)
-    signature_max = signature(sorted_list[0])
-    LRLM_list = []
-    for item in sorted_list:
-        if signature(item) == signature_max:
-            LRLM_list.append(item)
-        else:
-            return LRLM_list
-    return LRLM_list
-
-def process_line(line, cat_dict, pattern_FST, output_stream, out_all, out_lrlm, print_out=True):
+def process_line(line, cat_dict):
     """
     Get line in stream format and print all coverages and LRLM only.
     """
-    if print_out:
-        output_stream.write(line + '\n')
-    btime = clock()
     line = get_cats_by_line(line, cat_dict)
-    #print('{:f} cats'.format(clock() - btime))
-    btime = clock()
-    coverage_list = calculate_coverage_r(pattern_FST, line, pattern_FST)
-    parsed_coverages = []
-    if coverage_list != []:
-        if out_all:
-            parsed_coverages = parse_coverage_list(coverage_list)
-            if print_out:
-                output_stream.write('All coverages:\n')
-                output_all_coverages(parsed_coverages, output_stream)
-        if out_lrlm:
-            parsed_coverages = get_LRLM(parse_coverage_list(coverage_list))
-            if print_out:
-                output_stream.write('LRLM only:\n')
-                output_all_coverages(parsed_coverages, output_stream)
-    else:
-        if print_out:
-            output_stream.write('No coverage found\n')
-    #print('{:f} coverages'.format(clock() - btime))
-    return parsed_coverages, line
+    print(line)
+
+    return line
 
 def get_options():
     """
@@ -341,6 +152,33 @@ def get_options():
 
     return opts, args
 
+def get_rules(transtree):
+    """
+    From xml tree with transfer rules,
+    build an improvised pattern FST using nested dictionaries.
+    """
+    root = transtree.getroot()
+    rules = []
+    rule_id_map = {}
+    ambiguous_rule_groups = {}
+    prev_pattern, rule_group = [], -1
+    for i, rule in enumerate(root.find('section-rules').findall('rule')):
+        if 'id' in rule.attrib:
+            rule_id_map[str(i)] = rule.attrib['id']
+        pattern = ['start']
+        for pattern_item in rule.find('pattern').findall('pattern-item'):
+            pattern.append(pattern_item.attrib['n'])
+        if pattern == prev_pattern:
+            ambiguous_rule_groups.setdefault(str(rule_group), {str(rule_group)})
+            ambiguous_rule_groups[str(rule_group)].add(str(i))
+        else:
+            rules.append(tuple(pattern) + (str(i),))
+            rule_group = i
+        prev_pattern = pattern
+
+    rules.sort()
+    return rules, ambiguous_rule_groups, rule_id_map
+
 def prepare(rfname):
     """
     Read transfer file and prepare pattern FST.
@@ -357,14 +195,120 @@ def prepare(rfname):
         sys.exit(1)
 
     cat_dict = get_cat_dict(transtree)
-    pattern_FST, ambiguous_rules = get_pattern_FST(transtree)
-    #output_patterns(pattern_FST)
+    rules, ambiguous_rules, rule_id_map = get_rules(transtree)
 
-    return cat_dict, pattern_FST, ambiguous_rules
+    return cat_dict, rules, ambiguous_rules, rule_id_map
+
+class FST:
+    def __init__(self, init_rules):
+        self.start_state = 0
+        self.final_states = {}
+        self.states = {0}
+        self.alphabet = set()
+        self.transitions = {}
+
+        maxlen = max(len(rule) for rule in init_rules) - 1
+        self.maxlen = maxlen - 1
+        state, prev = 0, ''
+
+        rules = []
+        for rule in init_rules:
+            rules.append([(rule[0], 0)] + list(rule[1:]))
+
+        for level in range(1, maxlen):
+            for rule in rules:
+                # end of the rule
+                if len(rule) <= level:
+                    state += 1
+                elif len(rule) == level+1:
+                    self.final_states[rule[level-1][1]] = rule[level]
+                else:
+                    if rule[level] != prev:
+                        state += 1
+                    self.transitions[(rule[level-1][1], rule[level])] = state
+                    prev = rule[level]
+                    rule[level] = (rule[level], state)
+            prev = ''
+
+    def get_lrlm(self, line, cat_dict):
+        line = get_cats_by_line(line, cat_dict)
+        coverage_list, state_list = [[]], [self.start_state]
+        for token, cat_list in line:
+            new_coverage_list, new_state_list = [], []
+            for cat in cat_list:
+                for coverage, state in zip(coverage_list, state_list):
+                    if (state, cat) not in self.transitions:
+                        if state in self.final_states:
+                            if (self.start_state, cat) in self.transitions:
+                                new_coverage_list.append(coverage + [('r', self.final_states[state]), ('w', token)])
+                                new_state_list.append(self.transitions[(self.start_state, cat)])
+                            else:
+                                # discard coverage
+                                pass
+                                #print('Unknown transition: ({}, {})'.format(state, cat))
+                        else:
+                            # discard coverage
+                            pass
+                            #print('Unknown transition: ({}, {})'.format(state, cat))
+                    else:
+                        new_coverage_list.append(coverage + [('w', token)])
+                        new_state_list.append(self.transitions[(state, cat)])
+            coverage_list, state_list = new_coverage_list, new_state_list
+
+        new_coverage_list = []
+        for coverage, state in zip(coverage_list, state_list):
+            if state in self.final_states:
+                new_coverage_list.append(coverage + [('r', self.final_states[state])])
+            else:
+                # discard coverage
+                pass
+                #print('Unexpected end of pattern')
+
+        if new_coverage_list == []:
+            return []
+
+        handsome_coverage_list = []
+        for coverage in new_coverage_list:
+            pattern, handsome_coverage = [], []
+            for element in coverage:
+                if element[0] == 'w':
+                    pattern.append(element[1])
+                else:
+                    handsome_coverage.append((pattern, element[1]))
+                    pattern = []
+            handsome_coverage_list.append(handsome_coverage)
+
+        handsome_coverage_list.sort(key=signature, reverse=True)
+        signature_max = signature(handsome_coverage_list[0])
+        LRLM_list = []
+        for coverage in handsome_coverage_list:
+            if signature(coverage) == signature_max:
+                LRLM_list.append(coverage)
+            else:
+                return LRLM_list
+        return LRLM_list
+
+def signature(coverage):
+    """
+    Get coverage signature which is just a tuple
+    of lengths of groups comprising the coverage.
+    """
+    return tuple([len(group[0]) for group in coverage])
 
 if __name__ == "__main__":
     opts, args = get_options()
-    cat_dict, pattern_FST, ambiguous_rules = prepare(opts.rfname)
+    cat_dict, rules, ambiguous_rules, rule_id_map = prepare(opts.rfname)
+    pattern_FST = FST(rules)
+
+    #for rule in rules:
+    #    print(rule)
+    #print(rule_id_map)
+
+    coverages = pattern_FST.get_lrlm('^proud<adj><sint><comp>$ ^culture<n><pl>$', cat_dict)
+    for coverage in coverages:
+        print(coverage)
+
+    sys.exit(0)
 
     if len(args) == 0:
         input_stream = sys.stdin
