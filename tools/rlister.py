@@ -2,14 +2,16 @@
 
 import sys
 
-try: # see if lxml is installed
+try:
+    # see if lxml is installed
     from lxml import etree as ET
-    print("Using lxml library happily ever after.")
-except ImportError: # it is not
+    print("Using lxml library happily ever after.", file=sys.stderr)
+except ImportError:
+    # it is not
     import xml.etree.ElementTree as ET
     print("lxml library not found. Falling back to xml.etree,\n"
           "though it's highly recommended that you install lxml\n"
-          "as it works dramatically faster than xml.etree.")
+          "as it works dramatically faster than xml.etree.", file=sys.stderr)
 
 def list_rules(rfname):
     """
@@ -28,11 +30,11 @@ def list_rules(rfname):
 
     root = transtree.getroot()
     for rnum, rule in enumerate(root.find('section-rules').findall('rule')):
-        print(rnum, rule.attrib['comment'])
+        rule_id = rule.attrib.get('id', 'no id')
+        print(rnum+1, rule_id, rule.attrib['comment'], sep=' / ')
         print(' '.join(pattern_item.attrib['n'] for pattern_item in rule.find('pattern').findall('pattern-item')))
         print()
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit(1)
-    list_rules(sys.argv[1])
+    if len(sys.argv) == 2:
+        list_rules(sys.argv[1])

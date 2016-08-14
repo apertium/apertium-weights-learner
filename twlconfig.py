@@ -1,5 +1,5 @@
 # full path to source corpus from which to learn the rules
-source_corpus = "/home/nm/source/apertium/weighted-transfer/apertium-weights-learner/data/2007-en-10000.txt"
+source_corpus = "/home/nm/source/apertium/weighted-transfer/apertium-weights-learner/data/2007-100-special.txt"
 
 # name of apertium pair (not direction)
 apertium_pair_name = "en-es"
