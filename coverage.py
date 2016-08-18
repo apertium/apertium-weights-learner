@@ -15,168 +15,122 @@ except ImportError: # it is not
               "though it's highly recommended that you install lxml\n"
               "as it works dramatically faster than xml.etree.")
 
+# regex lines to build up rexes for cat-items
 any_tag_re = '<[a-z0-9-]+>'
 any_num_of_any_tags_re = '({})*'.format(any_tag_re)
-any_num_of_any_tags_line_re = '^{}$'.format(any_num_of_any_tags_re)
-default_cat = ['default']
 
-def tag_pattern_to_re(tag_pattern):
+# apertium token (anything between ^ and $)
+apertium_token_re = re.compile(r'\^(.*?)\$')
+
+def cat_item_to_re(cat_item):
     """
-    Get a tag pattern as specified in xml.
+    Get a pattern as specified in xml.
     Output a regex line that matches what 
     is specified by the pattern.
+
+    Attention: ^ and $ here are NOT Apertium start
+    and end of token, they are regex start and end
+    of line. Token is assumed to have been already
+    stripped of its ^ and $.
     """
-    if tag_pattern == '': # no tags
-        return '^$'
-    re_line = '^'
-    tag_sequence = tag_pattern.split('.')
+
+    # start with the lemma (or with the lack of it)
+    re_line = '^' + cat_item.attrib.get('lemma', '[^<>]*')
+
+    tags = cat_item.attrib['tags']
+
+    if tags == '':
+        # no tags: close regex line
+        return re_line + '$'
+
+    tag_sequence = tags.split('.')
     for tag in tag_sequence[:-1]:
-        # any tag
         if tag == '*':
-            re_line = re_line + any_tag_re
-        # specific tag
+            # any tag
+            re_line += any_tag_re
         else:
-            re_line = re_line + '<{}>'.format(tag)
-    # any tags at the end
+            # specific tag
+            re_line += '<{}>'.format(tag)
+
     if tag_sequence[-1] == '*':
-        re_line = re_line + any_num_of_any_tags_re
-    # specific tag at the end
+        # any tags at the end
+        re_line += any_num_of_any_tags_re
     else:
-        re_line = re_line + '<{}>'.format(tag_sequence[-1])
+        # specific tag at the end
+        re_line += '<{}>'.format(tag_sequence[-1])
+
     return re_line + '$'
 
 def get_cat_dict(transtree):
     """
-    Get an xml with transfer rules.
-    Build a makeshift inverted index of the rules.
+    Get an xml tree with transfer rules.
+    Build an inverted index of the rules.
     """
     root = transtree.getroot()
     cat_dict = {}
     for def_cat in root.find('section-def-cats').findall('def-cat'):
         for cat_item in def_cat.findall('cat-item'):
-            tag_re = tag_pattern_to_re(cat_item.attrib.get('tags', '*'))
-            lemma = cat_item.attrib.get('lemma', '')
-            if tag_re not in cat_dict:
-                cat_dict[tag_re] = {}
-            if lemma not in cat_dict[tag_re]:
-                cat_dict[tag_re][lemma] = []
-            cat_dict[tag_re][lemma].append(def_cat.attrib['n'])
+            # make a regex line to recognize lemma-tag pattern
+            re_line = cat_item_to_re(cat_item)
+            # add empty category list if there is none
+            cat_dict.setdefault(re_line, [])
+            # add category to the list
+            cat_dict[re_line].append(def_cat.attrib['n'])
     return cat_dict
 
 def get_cats_by_line(line, cat_dict):
     """
-    Return all possible categories for ALU.
+    Return all possible categories for each apertium token in line.
     """
-    return [get_cats_by_ALU(ALU, cat_dict)
-                for ALU in re.findall(r'\^.*?\$', line)]
+    return [get_cat(token, cat_dict)
+                for token in apertium_token_re.findall(line)]
 
-def get_cats_by_ALU(ALU, cat_dict):
+def get_cat(token, cat_dict):
     """
-    Return set of all possible categories for ALU.
+    Return all possible categories for token.
     """
-    divided = ALU.lstrip('^').rstrip('$').split('/')
-    if len(divided) > 1:
-        lemma = divided[0]
-        LU_list = divided[1:]
-        return (lemma, set(sum([get_cats_by_LU(LU, cat_dict, lemma) 
-                                    for LU in LU_list], [])))
-    if len(divided) == 1:
-        lemma = divided[0] #.split('<', 1)[0]
-        return (lemma, set(get_cats_by_LU(divided[0], cat_dict, lemma)))
-    return ('default', set(default_cat))
-
-def get_cats_by_LU(LU, cat_dict, lemma):
-    """
-    Return list of all possible categories for LU.
-    """
-    partial_lemma = LU.split('<', 1)[0]
-    tags = LU[len(partial_lemma):].split('#', 1)[0]
-    cat_list = []
-    for tag_re in cat_dict:
-        if re.match(tag_re, tags):
-            cat_list.extend((cat_dict[tag_re].get(lemma, [])))
-            cat_list.extend((cat_dict[tag_re].get('', [])))
-    if cat_list:
-        return cat_list
-    return default_cat
-
-def process_line(line, cat_dict):
-    """
-    Get line in stream format and print all coverages and LRLM only.
-    """
-    line = get_cats_by_line(line, cat_dict)
-    print(line)
-
-    return line
-
-def get_options():
-    """
-    Parse commandline arguments
-    """
-    usage = "USAGE: ./%prog [-a|-l] [-o OUTPUT_FILE] -r RULES_FILE [INPUT_FILE]"
-    op = OptionParser(usage=usage)
-
-    op.add_option("-o", "--out", dest="ofname",
-                  help="output results to OUTPUT_FILE.", metavar="OUTPUT_FILE")
-
-    op.add_option("-r", "--rules", dest="rfname",
-                  help="use RULES_FILE t*x file for calculating coverages.", metavar="RULES_FILE")
-
-    mode_group = OptionGroup(op, "output mode",
-                    "Specify what coverages to output, all or LRLM.  "
-                    "If none specified, outputs both variants.")
-
-    mode_group.add_option("-a", "--all", dest="all", action="store_true",
-                  help="output all coverages")
-
-    mode_group.add_option("-l", "--lrlm", dest="lrlm", action="store_true",
-                  help="output LRLM coverages")
-
-    op.add_option_group(mode_group)
-
-    (opts, args) = op.parse_args()
-
-    if opts.rfname is None:
-        op.error("specify t*x file containing rules with -r (--rules) option.")
-        op.print_help()
-        sys.exit(1)
-
-    if len(args) > 1:
-        op.error("too many arguments.")
-        op.print_help()
-        sys.exit(1)
-
-    if opts.all is None and opts.lrlm is None:
-        opts.all = True
-        opts.lrlm = True
-
-    return opts, args
+    token_cat_list = []
+    for cat_re, cat_list in cat_dict.items():
+        if re.match(cat_re, token):
+            token_cat_list.extend(cat_list)
+    return (token, token_cat_list)
 
 def get_rules(transtree):
     """
     From xml tree with transfer rules,
-    build an improvised pattern FST using nested dictionaries.
+    get rules, ambiguous rules,
+    and rule id to number map.
     """
     root = transtree.getroot()
-    rules = []
-    rule_id_map = {}
-    ambiguous_rule_groups = {}
-    prev_pattern, rule_group = [], -1
+
+    # build pattern -> rules numbers dict (rules_dict),
+    # and rule number -> rule id dict (rule_id_map)
+    rules_dict, rule_id_map  = {}, {}
     for i, rule in enumerate(root.find('section-rules').findall('rule')):
         if 'id' in rule.attrib:
+            # rule has 'id' attribute: add it to rule_id_map
             rule_id_map[str(i)] = rule.attrib['id']
-        pattern = ['start']
-        for pattern_item in rule.find('pattern').findall('pattern-item'):
-            pattern.append(pattern_item.attrib['n'])
-        if pattern == prev_pattern:
-            ambiguous_rule_groups.setdefault(str(rule_group), {str(rule_group)})
-            ambiguous_rule_groups[str(rule_group)].add(str(i))
-        else:
-            rules.append(tuple(pattern) + (str(i),))
-            rule_group = i
-        prev_pattern = pattern
+        # build pattern
+        pattern = tuple(pattern_item.attrib['n'] 
+                for pattern_item in rule.find('pattern').findall('pattern-item'))
+        # add empty rules list for pattern
+        # if pattern was not in rules_dict
+        rules_dict.setdefault(pattern, [])
+        # add rule number to rules list
+        rules_dict[pattern].append(str(i))
 
+    # detect groups of ambiguous rules,
+    # and prepare rules for building FST
+    rules, ambiguous_rule_groups = [], {}
+    for pattern, rule_group in rules_dict.items():
+        if all(rule in rule_id_map for rule in rule_group):
+            # all rules in group have ids: add group to ambiguous rules
+            ambiguous_rule_groups[rule_group[0]] = rule_group
+        # add pattern to rules using first rule as default
+        rules.append(pattern + (rule_group[0],))
+    # sort rules to optimize FST building
     rules.sort()
+
     return rules, ambiguous_rule_groups, rule_id_map
 
 def prepare(rfname):
@@ -200,91 +154,138 @@ def prepare(rfname):
     return cat_dict, rules, ambiguous_rules, rule_id_map
 
 class FST:
+    """
+    FST for coverage recognition.
+    """
     def __init__(self, init_rules):
+        """
+        Initialize with patterns from init_rules.
+        """
         self.start_state = 0
-        self.final_states = {}
-        self.states = {0}
-        self.alphabet = set()
-        self.transitions = {}
+        self.final_states = {} # final state: rule
+        self.transitions = {} # (state, input): state
 
-        maxlen = max(len(rule) for rule in init_rules) - 1
+        maxlen = max(len(rule) for rule in init_rules)
         self.maxlen = maxlen - 1
-        state, prev = 0, ''
 
-        rules = []
-        for rule in init_rules:
-            rules.append([(rule[0], 0)] + list(rule[1:]))
+        # make rule table, where each pattern starts with ('start', 0)
+        rules = [[('start', self.start_state)] + list(rule) for rule in init_rules]
 
+        state, prev_cat = self.start_state, ''
+        # look at each rule pattern at fixed position 
         for level in range(1, maxlen):
             for rule in rules:
-                # end of the rule
                 if len(rule) <= level:
+                    # this rule already ended: increment state to keep it simple
                     state += 1
                 elif len(rule) == level+1:
+                    # end of the rule is here: add this state as a final
                     self.final_states[rule[level-1][1]] = rule[level]
                 else:
-                    if rule[level] != prev:
+                    if rule[level] != prev_cat:
+                        # rule patterns diverged: add new state                        
                         state += 1
+                    # add transition
                     self.transitions[(rule[level-1][1], rule[level])] = state
-                    prev = rule[level]
+                    prev_cat = rule[level]
+                    # add current state to current pattern element
                     rule[level] = (rule[level], state)
-            prev = ''
+            # change prev_cat to empty at the end of rules list
+            # to ensure state is changed at the start of next run through
+            prev_cat = ''
 
     def get_lrlm(self, line, cat_dict):
+        """
+        Build all lrlm coverages for line.
+        
+        """
+        # tokenize line and get all possible categories for each token
         line = get_cats_by_line(line, cat_dict)
+
+        # coverage and state lists are built dinamically
+        # each state from state_list is the state of FST
+        # at the end of corresponding coverage from coverage_list
         coverage_list, state_list = [[]], [self.start_state]
+
+        # go through all tokens in line
         for token, cat_list in line:
             new_coverage_list, new_state_list = [], []
+
+            # go through all cats for the token
             for cat in cat_list:
+
+                # try to continue each coverage obtained on the previous step
                 for coverage, state in zip(coverage_list, state_list):
-                    if (state, cat) not in self.transitions:
-                        if state in self.final_states:
-                            if (self.start_state, cat) in self.transitions:
-                                new_coverage_list.append(coverage + [('r', self.final_states[state]), ('w', token)])
-                                new_state_list.append(self.transitions[(self.start_state, cat)])
-                            else:
-                                # discard coverage
-                                pass
-                                #print('Unknown transition: ({}, {})'.format(state, cat))
-                        else:
-                            # discard coverage
-                            pass
-                            #print('Unknown transition: ({}, {})'.format(state, cat))
-                    else:
+
+                    if (state, cat) in self.transitions:
+                        # current pattern can be made longer: add one more token
                         new_coverage_list.append(coverage + [('w', token)])
                         new_state_list.append(self.transitions[(state, cat)])
+
+                    elif state in self.final_states:
+                        # current state is one of the final states: close previous pattern
+                        new_coverage = coverage + [('r', self.final_states[state])]
+
+                        if (self.start_state, cat) in self.transitions:
+                            # can start new pattern
+                            new_coverage_list.append(new_coverage + [('w', token)])
+                            new_state_list.append(self.transitions[(self.start_state, cat)])
+                        elif '*' in token:
+                            # can not start new pattern because of an unknown word
+                            new_coverage_list.append(new_coverage + [('w', token), ('r', -1)])
+                            new_state_list.append(self.start_state)
+
+                    elif state == self.start_state and '*' in token:
+                        # unknown word at start state: add it to pattern, start new
+                        new_coverage_list.append(coverage + [('w', token), ('r', -1)])
+                        new_state_list.append(self.start_state)
+
+                    # if nothing worked, just discard this coverage
+
             coverage_list, state_list = new_coverage_list, new_state_list
 
+        # finalize coverages
         new_coverage_list = []
         for coverage, state in zip(coverage_list, state_list):
             if state in self.final_states:
+                # current state is one of the final states: close the last pattern
                 new_coverage_list.append(coverage + [('r', self.final_states[state])])
-            else:
-                # discard coverage
-                pass
-                #print('Unexpected end of pattern')
+            elif coverage[-1][0] == 'r':
+                # the last pattern is already closed
+                new_coverage_list.append(coverage)
+            # if nothing worked, just discard this coverage as incomplete
 
         if new_coverage_list == []:
+            # no coverages detected: no need to go further
             return []
 
-        handsome_coverage_list = []
+        # convert coverage representation:
+        # [('r'/'w', rule_number/token), ...] -> [([token, token, ... ], rule_number), ...]
+        formatted_coverage_list = []
         for coverage in new_coverage_list:
-            pattern, handsome_coverage = [], []
+            pattern, formatted_coverage = [], []
             for element in coverage:
                 if element[0] == 'w':
                     pattern.append(element[1])
                 else:
-                    handsome_coverage.append((pattern, element[1]))
+                    formatted_coverage.append((pattern, element[1]))
                     pattern = []
-            handsome_coverage_list.append(handsome_coverage)
+            formatted_coverage_list.append(formatted_coverage)
 
-        handsome_coverage_list.sort(key=signature, reverse=True)
-        signature_max = signature(handsome_coverage_list[0])
+        # sort coverages by signature, which is a tuple
+        # of coverage part lengths
+        formatted_coverage_list.sort(key=signature, reverse=True)
+        signature_max = signature(formatted_coverage_list[0])
+
+        # keep only those with top signature in terms of signature
+        # they would be LRLM ones
         LRLM_list = []
-        for coverage in handsome_coverage_list:
+        for coverage in formatted_coverage_list:
             if signature(coverage) == signature_max:
+                # keep adding
                 LRLM_list.append(coverage)
             else:
+                # no need to look further, others will be worse
                 return LRLM_list
         return LRLM_list
 
@@ -296,37 +297,10 @@ def signature(coverage):
     return tuple([len(group[0]) for group in coverage])
 
 if __name__ == "__main__":
-    opts, args = get_options()
-    cat_dict, rules, ambiguous_rules, rule_id_map = prepare(opts.rfname)
+    cat_dict, rules, ambiguous_rules, rule_id_map = prepare('../apertium-en-es/apertium-en-es.en-es.t1x')
     pattern_FST = FST(rules)
 
-    #for rule in rules:
-    #    print(rule)
-    #print(rule_id_map)
-
-    coverages = pattern_FST.get_lrlm('^proud<adj><sint><comp>$ ^culture<n><pl>$', cat_dict)
+    coverages = pattern_FST.get_lrlm('^publish<vblex><pp>$ ^in<pr>$ ^the<det><def><sp>$ ^journal<n><sg>$ ^of<pr>$ ^the<det><def><sp>$ ^american<adj>$ ^medical<adj>$ ^association<n><sg>$ ^the<det><def><sp>$ ^study<n><sg>$ ^track<vblex><past>$ ^the<det><def><sp>$ ^mental<adj>$ ^health<n><sg>$ ^of<pr>$ ^88,000<num>$ ^army<n><sg>$ ^combat<n><sg>$ ^veteran<n><pl>$ ^by<pr>$ ^compare<vblex><ger>$ ^their<det><pos><sp>$ ^response<n><pl>$ ^in<pr>$ ^a<det><ind><sg>$ ^mental<adj>$ ^health<n><sg>$ ^questionnaire<n><sg>$ ^fill<vblex><past>$ ^out<adv>$ ^upon<pr>$ ^their<det><pos><sp>$ ^return<n><sg>$ ^home<n><sg>$ ^with<pr>$ ^a<det><ind><sg>$ ^second<det><ord><sp>$ ^mental<adj>$ ^health<n><sg>$ ^screening<n><sg>$ ^three<num><sp>$ ^to<pr>$ ^six<num><sp>$ ^month<n><pl>$ ^later<adv>$^.<sent>$', cat_dict)
+    print('Coverages detected:')
     for coverage in coverages:
         print(coverage)
-
-    sys.exit(0)
-
-    if len(args) == 0:
-        input_stream = sys.stdin
-    elif len(args) == 1:
-        try:
-            input_stream = open(args[0], 'r', encoding='utf-8')
-        except FileNotFoundError:
-            print('Failed to locate input file \'{}\'. '
-                  'Have you misspelled the name?'.format(args[0]))
-            sys.exit(1)
-
-    if opts.ofname:
-        output_stream = open(opts.ofname, 'w', encoding='utf-8')            
-    else:
-        output_stream = sys.stdout
-
-    for line in input_stream:
-        process_line(line, cat_dict, pattern_FST, output_stream, opts.all, opts.lrlm)
-
-    if opts.ofname:
-        output_stream.close()

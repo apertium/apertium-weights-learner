@@ -1,11 +1,15 @@
 #! /usr/bin/python3
 
 import re, sys, os, pipes, gc
-from math import exp
 from time import perf_counter as clock
+from math import exp
+# language model handling
 import kenlm
-import twlconfig # a simple config in python file
+# simple config in python file
+import twlconfig
+# module for coverage calculation
 import coverage
+# apertium translator pipelines
 from pipelines import partialTranslator, weightedPartialTranslator
 
 tmpweights_fname = 'tmpweights.w1x'
@@ -16,11 +20,8 @@ sent_re = re.compile('.*?<sent>\$')
 # anything between $ and ^
 inter_re = re.compile(r'\$.*?\^')
 
-# apertium special symbols for removal 
-apertium_re = re.compile(r'[@#~*]')
-
 # apertium token (anything between ^ and $)
-apertium_token_re = re.compile(r'\^.*?\$')
+apertium_token_re = re.compile(r'\^(.*?)\$')
 
 # start and finish of weights file
 weights_head = '<?xml version="1.0" encoding="UTF-8"?>\n<transfer-weights>\n'
@@ -50,13 +51,13 @@ def normalize(line):
 def pattern_to_xml(pattern, weight=1.):
     """
     Create a string with XML representation
-    of pattern with weight for weigths file.
+    of weighted pattern for weigths file.
     """
     pattern_line = '      <pattern weight="{}">\n'.format(weight)
     for pattern_item in pattern:
-        parts = pattern_item.strip('^$').split('<', maxsplit=1)
+        parts = pattern_item.split('<', maxsplit=1) + ['']
         lemma, tags = parts[0], parts[1].strip('>')
-        pattern_line += '        <pattern-item lemma="{}" tags="{}"/>\n'.format(lemma, '.'.join(tags.split('><')))
+        pattern_line += '        <pattern-item lemma="{}" tags="{}"/>\n'.format(lemma, tags.replace('><', '.'))
     pattern_line += '      </pattern>\n'
     return pattern_line
 
@@ -90,7 +91,7 @@ def tag_corpus(pair_data, source, target, corpus, prefix, data_folder):
     btime = clock()
 
     # make output file name
-    ofname = '{}-tagged.txt'.format(prefix)
+    ofname = prefix + '-tagged.txt'
 
     # create pipeline
     pipe = pipes.Template()
@@ -124,10 +125,12 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
     btime = clock()
 
     # make output file name
-    ofname = '{}-ambiguous.txt'.format(prefix)
+    ofname = prefix + '-ambiguous.txt'
 
-    # initialize translator for translation with no weights
+    # initialize translators
+    # for translation with no weights
     translator = partialTranslator(tixfname, binfname)
+    # for weighted translation
     weighted_translator = weightedPartialTranslator(tixfname, binfname)
 
     # initialize statistics
@@ -138,13 +141,6 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
     with open(corpus, 'r', encoding='utf-8') as ifile, \
          open(ofname, 'w', encoding='utf-8') as ofile:
         for line in ifile:
-            lines_count += 1
-            if lines_count % 1000 == 0:
-                print('\n{} total lines\n{} total sentences'.format(lines_count, total_sents_count))
-                print('{} ambiguous sentences\n{} ambiguous chunks'.format(ambig_sents_count, ambig_chunks_count))
-                print('{} botched coverages\nanother {:.4f} elapsed'.format(botched_coverages, clock() - lbtime))
-                gc.collect()
-                lbtime = clock()
 
             # look at each sentence in line
             for sent_match in sent_re.finditer(line.strip()):
@@ -154,28 +150,33 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
                 coverage_list = pattern_FST.get_lrlm(sent_match.group(0), cat_dict)
                 if coverage_list == []:
                     botched_coverages += 1
+                    print('Botched coverage:', sent_match.group(0))
+                    print()
                 else:
                     # look for ambiguous chunks
                     coverage_item = coverage_list[0]
                     pattern_list = search_ambiguous(ambiguous_rules, coverage_item)
                     if pattern_list != []:
-                        #print(coverage_item)
-                        #print()
-                        #print(pattern_list)
-                        #print()
+                        print('Coverage:', coverage_item)
+                        print('Pattern list:', pattern_list)
+                        print()
                         ambig_sents_count += 1
                         # segment the sentence into parts each containing one ambiguous chunk
                         sentence_segments, prev = [], 0
                         for i, rule_group_number, pattern in pattern_list:
                             ambig_chunks_count += 1
-                            piece_of_line = '^' + '$ ^'.join(sum([chunk[0] for chunk in coverage_item[prev:i+1]], [])) + '$'
+                            list_with_chunk = sum([chunk[0] 
+                                for chunk in coverage_item[prev:i+1]], [])
+                            piece_of_line = '^' + '$ ^'.join(list_with_chunk) + '$'
                             sentence_segments.append([rule_group_number, pattern, piece_of_line])
                             prev = i+1
 
                         if sentence_segments != []:
-                            # add up the tail of the sentence
                             if prev <= len(coverage_item):
-                                piece_of_line = ' ^' + '$ ^'.join(sum([chunk[0] for chunk in coverage_item[prev:]], [])) + '$'
+                                # add up the tail of the sentence
+                                list_with_chunk = sum([chunk[0]
+                                    for chunk in coverage_item[prev:]], [])
+                                piece_of_line = ' ^' + '$ ^'.join(list_with_chunk) + '$'
                                 sentence_segments[-1][2] += piece_of_line
 
                             #print(sentence_segments)
@@ -183,7 +184,7 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
 
                             # first, translate each segment with default rules
                             for sentence_segment in sentence_segments:
-                                sentence_segment.append(apertium_re.sub('', translator.translate(sentence_segment[2])))
+                                sentence_segment.append(translator.translate(sentence_segment[2]))
 
                             # second, translate each segment with each of the rules,
                             # and make full sentence, where other segments are translated with default rules
@@ -202,6 +203,15 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
                                 print('{}\t^{}$\t{}'.format(sentence_segment[0], '$ ^'.join(sentence_segment[1]), len(output_list)), file=ofile)
                                 # then, output all the translations in the following way: rule number, then translated sentence
                                 print('\n'.join(output_list), file=ofile)
+
+            lines_count += 1
+            if lines_count % 100 == 0:
+                print('\n{} total lines\n{} total sentences'.format(lines_count, total_sents_count))
+                print('{} ambiguous sentences\n{} ambiguous chunks'.format(ambig_sents_count, ambig_chunks_count))
+                print('{} botched coverages\nanother {:.4f} elapsed'.format(botched_coverages, clock() - lbtime))
+                gc.collect()
+                lbtime = clock()
+
     print('Done in {:.2f}'.format(clock() - btime))
     return ofname
 
@@ -225,8 +235,8 @@ def translate_ambiguous(weighted_translator, rule_group, pattern, sent_line, rul
         with open(tmpweights_fname, 'w', encoding='utf-8') as wfile:
             wfile.write(weights_line)
 
-        # translate using created file
-        translation = apertium_re.sub('', weighted_translator.translate(sent_line, tmpweights_fname))
+        # translate using created weights file
+        translation = weighted_translator.translate(sent_line, tmpweights_fname)
         translation_list.append((focus_rule, translation))
 
     return translation_list
@@ -239,7 +249,7 @@ def score_sentences(ambig_sentences_fname, model, prefix):
     btime, chunk_counter, sentence_counter = clock(), 0, 0
 
     # make output file name
-    ofname = '{}-chunk-weights.txt'.format(prefix)
+    ofname = prefix + '-chunk-weights.txt'
 
     with open(ambig_sentences_fname, 'r', encoding='utf-8') as ifile, \
          open(ofname, 'w', encoding='utf-8') as ofile:
@@ -248,26 +258,31 @@ def score_sentences(ambig_sentences_fname, model, prefix):
             try:
                 line = ifile.readline()
                 group_number, pattern, rulecount = line.rstrip('\n').split('\t')
-                weights_list = []
-                # score
-                total = 0.
+                weights_list, total = [], 0.
+
+                # read and process as much following lines as specified by rulecount
                 for i in range(int(rulecount)):
                     line = ifile.readline()
                     rule_number, sentence = line.rstrip('\n').split('\t')
+
+                    # score and add up
                     score = exp(model.score(normalize(sentence), bos = True, eos = True))
                     weights_list.append((rule_number, score))
                     total += score
                     sentence_counter += 1
+
                 # normalize and print out         
                 for rule_number, score in weights_list:
                     print(group_number, rule_number, pattern, score / total, sep='\t', file=ofile)
                 chunk_counter += 1
+
             except ValueError:
                 reading = False
             except IndexError:
                 reading = False
             except EOFError:
                 reading = False
+
     print('Scored {} chunks, {} sentences in {:.2f}'.format(chunk_counter, sentence_counter, clock() - btime))
     return ofname
 
@@ -280,8 +295,8 @@ def make_xml_rules(scores_fname, prefix, rule_map):
     btime = clock()
 
     # make output file names
-    sorted_scores_fname = '{}-chunk-weights-sorted.txt'.format(prefix)
-    ofname = '{}-rule-weights.w1x'.format(prefix)
+    sorted_scores_fname = prefix + '-chunk-weights-sorted.txt'
+    ofname = prefix + '-rule-weights.w1x'
 
     # create pipeline
     pipe = pipes.Template()
@@ -357,7 +372,7 @@ if __name__ == "__main__":
     # sum up weigths for rule-pattern and make final xml
     make_xml_rules(scores_fname, prefix, rule_id_map)
 
-    # clean up
+    # clean up temporary weights filem
     if os.path.exists(tmpweights_fname):
         os.remove(tmpweights_fname)
 

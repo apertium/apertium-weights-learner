@@ -1,8 +1,20 @@
-import sys
+import sys, re
 from subprocess import Popen, PIPE
 
+# apertium special symbols for removal 
+apertium_re = re.compile(r'[@#~*]')
+
 class partialTranslator():
+    """
+    Wrapper for part of Apertium pipeline
+    going from bidix lookup to the generation.
+    """
     def __init__(self, tixfname, binfname):
+        """
+        On initialization, partial Apertium pipeline
+        is invoked with '-z' option (null flush)
+        and remains active waiting for input.
+        """
         self.autobil = Popen(['lt-proc', '-b', '-z', 
                               binfname + '.autobil.bin'
                              ],
@@ -28,6 +40,11 @@ class partialTranslator():
                              stdin = self.postchunk.stdout, stdout = PIPE)
 
     def translate(self, string):
+        """
+        Convert input string to bytes,
+        send it to the pipeline,
+        return the result converted to utf-8.
+        """
         string = string.strip() + '[][\n]'
 
         if type(string) == type(''): 
@@ -45,10 +62,22 @@ class partialTranslator():
             output.append(char)
             char = self.autogen.stdout.read(1)
 
-        return (b''.join(output)).decode('utf-8').replace('[][\n]','')
+        return apertium_re.sub('', (b''.join(output)).decode('utf-8').replace('[][\n]',''))
 
 class weightedPartialTranslator():
+    """
+    Wrapper for part of Apertium pipeline
+    going from bidix lookup to the generation.
+    It is missing 1st-stage transfer at init,
+    because transfer is invoked at translation
+    with provided weights file.
+    """
     def __init__(self, tixfname, binfname):
+        """
+        On initialization, fragments of Apertium pipeline
+        are invoked with '-z' option (null flush)
+        and remain active waiting for input.
+        """
         self.tixfname = tixfname
         self.binfname = binfname
 
@@ -58,6 +87,8 @@ class weightedPartialTranslator():
                              stdin = PIPE, stdout = PIPE)
 
         # transfer is missing here
+        # it is invoked during translation
+        # using provided transfer weights file 
 
         self.interchunk = Popen(['apertium-interchunk', '-z',
                                  tixfname + '.t2x',
@@ -75,7 +106,11 @@ class weightedPartialTranslator():
                              stdin = self.postchunk.stdout, stdout = PIPE)
 
     def translate(self, string, wixfname):
-        # start null flush pipeline
+        """
+        Convert input string to bytes,
+        send it to the pipeline,
+        return the result converted to utf-8.
+        """
         string = string.strip() + '[][\n]'
 
         if type(string) == type(''): 
@@ -83,6 +118,7 @@ class weightedPartialTranslator():
         else:
             bstring = string  
 
+        # start going through null flush pipeline
         self.autobil.stdin.write(bstring)
         self.autobil.stdin.write(b'\0')
         self.autobil.stdin.flush()
@@ -103,7 +139,7 @@ class weightedPartialTranslator():
 
         transfer_output, err = transfer.communicate(b''.join(autobil_output))
 
-        # resume null flush pipeline
+        # resume going through null flush pipeline
         self.interchunk.stdin.write(transfer_output)
         self.interchunk.stdin.write(b'\0')
         self.interchunk.stdin.flush()
@@ -114,7 +150,7 @@ class weightedPartialTranslator():
             autogen_output.append(char)
             char = self.autogen.stdout.read(1)
 
-        return (b''.join(autogen_output)).decode('utf-8').replace('[][\n]','')
+        return apertium_re.sub('', (b''.join(autogen_output)).decode('utf-8').replace('[][\n]',''))
 
 if __name__ == "__main__":
     t = weightedPartialTranslator('../apertium-en-es/apertium-en-es.en-es', '../apertium-en-es/en-es')
