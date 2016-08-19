@@ -5,7 +5,7 @@ import simpletok
 
 if len(sys.argv) != 3:
     print("Please specify input folder and output file name:")
-    print("./glue INPUT_FOLDER OUTPUT_FILE")
+    print("./glue.py INPUT_FOLDER OUTPUT_FILE")
 else:
     main_dir = sys.argv[1]
     fnames = os.listdir(main_dir)

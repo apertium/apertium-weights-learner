@@ -31,7 +31,7 @@ bin/lmplz -o 5 -T FOLDER_FOR_TMP_FILE <CORPUS_FILE >MODEL_NAME.arpa
 ```
 Be advised that you might need disk space rougly 15 times the corpus volume for your language model. You can also use gz in order to compress the model file during its creation reducing its size:
 ```
-bin/lmplz -o 5 -T FOLDER_FOR_TMP_FILE <CORPUS_FILE  | gzip >MODEL_NAME.arpa.gz
+bin/lmplz -o 5 -T FOLDER_FOR_TMP_FILE <CORPUS_FILE | gzip >MODEL_NAME.arpa.gz
 ```
 * It is highly recommended that you compile a binary after that as it works significantly faster:
 ```
@@ -53,11 +53,21 @@ Be advised that you might need additional disk space rougly half the arpa file v
 ## Sample run
 In order to ensure that everything works fine, you may perform a sample run using prepared corpus:
 
-* Download all parts (years 2007 to 2011) of Spanish news crawl corpora from http://www.statmt.org/wmt12/translation-task.html
-* Concatenate them using glue.py script from tools folder.
-* Train a language model on the resulting corpus.
+* Download and unpack all parts (years 2007 to 2011) of Spanish news crawl corpora from http://www.statmt.org/wmt12/translation-task.html
+* Concatenate them using glue.py script from tools folder (i.e., assuming you are in apertium-weights-learner folder):
+```
+tools/glue.py path/to/folder/where/corpus/parts/are glued_corpus
+```
+* Train a language model on the resulting corpus (i.e., cd into build folder of kenlm model and type):
+```
+bin/lmplz -o 5 -T folder/for/tmpfile </path/to/glued_corpus | gzip >model.arpa.gz
+bin/build_binary -T folder/for/tmpfile model.arpa.gz model.mmap
+```
 * Check out the en-es pair from https://svn.code.sf.net/p/apertium/svn/branches/weighted-transfer/
-* Run weights training on new-software-sample.txt file located in the data folder with the en-es pair.
+* Run weights training on new-software-sample.txt file located in the data folder with the en-es pair, i.e., edit twlconfig.py accordingly and run:
+```
+./twlearner.py
+```
 
 The sample file new-software-sample.txt contains three selected lines with 'new software' and 'this new software' patterns, each of which triggers a pair of ambiguous rules from apertium-en-es.en-es.t1x file, namely ['adj-nom', 'adj-nom-ns'] and ['det-adj-nom', 'det-adj-nom-ns']. Speaking informally, these rules are used to transfer sequences of (adjective, noun) and (determiner, adjective, noun). The first rule in each ambiguous pair specifies that the translations of the adjective and the noun are to be swapped, which is usual for Spanish, hence these rule are specified before their '-ns' counterparts indicating that these are the default rules. The second rule in each ambiguous pair specifies that the translations of the adjective and the noun are not to be swapped, which sometimes happens and depends on lexical units involved.
 
@@ -109,3 +119,12 @@ The contents of the unpruned w1x file should look like the following:
 ```
 
 This would mean that '-ns' versions of both rules are preferred for each pattern, which tells the transfer module that the translations of 'new' and 'software' should not be swapped (as specified in '-ns' versions of both rules), since in Spanish the adjective 'nuevo' is usually put before the noun as opposed to the fact that most adjectives are put after the noun.
+
+## Pruning
+You can also prune the obtained weights file with prune.py script from tools folder. Pruning is a process of eliminating redundant weighted patterns, i.e.:
+For each rule group:
+for each pattern that is present in more than one rule:
+* keep only the entry in the rule with the highest weight, and set the weight to 1
+* if the rule with the entry with weight = 1 happens to be the default (first) rule, remove that entry from the weights file altogether, since it will be the rule applied anyway.
+
+The idea behind the pruning process is that in fact, we only want to weight exceptions from the default rule. Pruning doesn't offer any speed advantages with the current realization but might be useful in the future.
