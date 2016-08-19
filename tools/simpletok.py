@@ -4,7 +4,7 @@ import sys, re
 
 beforepunc_re = re.compile(r'([¿("/])(\w)')
 afterpunc_re = re.compile(r'(\w)([;:,.!?)"/—])')
-quot_re = re.compile("[«»']")
+quot_re = re.compile("[«»`'“”„‘’‛]")
 numfix_re = re.compile('([0-9]) ([,.:][0-9])')
 beforedash_re = re.compile(r'(\W)-(\w)')
 afterdash_re = re.compile(r'(\w)-(\W)')

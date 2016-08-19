@@ -217,11 +217,13 @@ class FST:
                 # try to continue each coverage obtained on the previous step
                 for coverage, state in zip(coverage_list, state_list):
 
+                    # first, check if we can go further along current pattern
                     if (state, cat) in self.transitions:
                         # current pattern can be made longer: add one more token
                         new_coverage_list.append(coverage + [('w', token)])
                         new_state_list.append(self.transitions[(state, cat)])
 
+                    # if not, check if we can finalize current pattern
                     elif state in self.final_states:
                         # current state is one of the final states: close previous pattern
                         new_coverage = coverage + [('r', self.final_states[state])]
@@ -232,12 +234,13 @@ class FST:
                             new_state_list.append(self.transitions[(self.start_state, cat)])
                         elif '*' in token:
                             # can not start new pattern because of an unknown word
-                            new_coverage_list.append(new_coverage + [('w', token), ('r', -1)])
+                            new_coverage_list.append(new_coverage + [('w', token), ('r', 'unknown')])
                             new_state_list.append(self.start_state)
 
+                    # if not, check if it is just an unknown word
                     elif state == self.start_state and '*' in token:
                         # unknown word at start state: add it to pattern, start new
-                        new_coverage_list.append(coverage + [('w', token), ('r', -1)])
+                        new_coverage_list.append(coverage + [('w', token), ('r', 'unknown')])
                         new_state_list.append(self.start_state)
 
                     # if nothing worked, just discard this coverage
@@ -250,7 +253,7 @@ class FST:
             if state in self.final_states:
                 # current state is one of the final states: close the last pattern
                 new_coverage_list.append(coverage + [('r', self.final_states[state])])
-            elif coverage[-1][0] == 'r':
+            elif coverage != [] and coverage[-1][0] == 'r':
                 # the last pattern is already closed
                 new_coverage_list.append(coverage)
             # if nothing worked, just discard this coverage as incomplete
@@ -272,13 +275,16 @@ class FST:
                     pattern = []
             formatted_coverage_list.append(formatted_coverage)
 
+        # now we filter out some not-lrlm coverages
+        # that still got into
+
         # sort coverages by signature, which is a tuple
         # of coverage part lengths
         formatted_coverage_list.sort(key=signature, reverse=True)
         signature_max = signature(formatted_coverage_list[0])
 
-        # keep only those with top signature in terms of signature
-        # they would be LRLM ones
+        # keep only those with top signature
+        # they would be the LRLM ones
         LRLM_list = []
         for coverage in formatted_coverage_list:
             if signature(coverage) == signature_max:
@@ -300,7 +306,7 @@ if __name__ == "__main__":
     cat_dict, rules, ambiguous_rules, rule_id_map = prepare('../apertium-en-es/apertium-en-es.en-es.t1x')
     pattern_FST = FST(rules)
 
-    coverages = pattern_FST.get_lrlm('^publish<vblex><pp>$ ^in<pr>$ ^the<det><def><sp>$ ^journal<n><sg>$ ^of<pr>$ ^the<det><def><sp>$ ^american<adj>$ ^medical<adj>$ ^association<n><sg>$ ^the<det><def><sp>$ ^study<n><sg>$ ^track<vblex><past>$ ^the<det><def><sp>$ ^mental<adj>$ ^health<n><sg>$ ^of<pr>$ ^88,000<num>$ ^army<n><sg>$ ^combat<n><sg>$ ^veteran<n><pl>$ ^by<pr>$ ^compare<vblex><ger>$ ^their<det><pos><sp>$ ^response<n><pl>$ ^in<pr>$ ^a<det><ind><sg>$ ^mental<adj>$ ^health<n><sg>$ ^questionnaire<n><sg>$ ^fill<vblex><past>$ ^out<adv>$ ^upon<pr>$ ^their<det><pos><sp>$ ^return<n><sg>$ ^home<n><sg>$ ^with<pr>$ ^a<det><ind><sg>$ ^second<det><ord><sp>$ ^mental<adj>$ ^health<n><sg>$ ^screening<n><sg>$ ^three<num><sp>$ ^to<pr>$ ^six<num><sp>$ ^month<n><pl>$ ^later<adv>$^.<sent>$', cat_dict)
+    coverages = pattern_FST.get_lrlm('^prpers<prn><subj><p1><mf><pl>$ ^want# to<vbmod><pp>$ ^wait<vblex><inf>$ ^until<cnjadv>$ ^prpers<prn><subj><p1><mf><pl>$ ^can<vaux><past>$ ^offer<vblex><inf>$ ^what<prn><itg><m><sp>$ ^would<vaux><inf>$ ^be<vbser><inf>$ ^totally<adv>$ ^satisfy<vblex><ger>$ ^for<pr>$ ^consumer<n><pl>$^.<sent>$', cat_dict)
     print('Coverages detected:')
     for coverage in coverages:
         print(coverage)

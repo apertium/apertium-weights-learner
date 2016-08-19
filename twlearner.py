@@ -15,7 +15,7 @@ from pipelines import partialTranslator, weightedPartialTranslator
 tmpweights_fname = 'tmpweights.w1x'
 
 # regular expression to cut out a sentence 
-sent_re = re.compile('.*?<sent>\$')
+sent_re = re.compile('.*?<sent>\$|.+?$')
 
 # anything between $ and ^
 inter_re = re.compile(r'\$.*?\^')
@@ -31,7 +31,7 @@ weights_tail = '</transfer-weights>'
 # for scoring against language model
 beforepunc_re = re.compile(r'([¿("/])(\w)')
 afterpunc_re = re.compile(r'(\w)([;:,.!?)"/—])')
-quot_re = re.compile("[«»']")
+quot_re = re.compile("[«»`'“”„‘’‛]")
 numfix_re = re.compile('([0-9]) ([,.:][0-9])')
 beforedash_re = re.compile(r'(\W)-(\w)')
 afterdash_re = re.compile(r'(\w)-(\W)')
@@ -144,22 +144,23 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
 
             # look at each sentence in line
             for sent_match in sent_re.finditer(line.strip()):
-                total_sents_count += 1
+                if sent_match.group(0) != '':
+                    total_sents_count += 1
 
                 # get coverages
                 coverage_list = pattern_FST.get_lrlm(sent_match.group(0), cat_dict)
                 if coverage_list == []:
                     botched_coverages += 1
-                    print('Botched coverage:', sent_match.group(0))
-                    print()
+                    #print('Botched coverage:', sent_match.group(0))
+                    #print()
                 else:
                     # look for ambiguous chunks
                     coverage_item = coverage_list[0]
                     pattern_list = search_ambiguous(ambiguous_rules, coverage_item)
                     if pattern_list != []:
-                        print('Coverage:', coverage_item)
-                        print('Pattern list:', pattern_list)
-                        print()
+                        #print('Coverage:', coverage_item)
+                        #print('Pattern list:', pattern_list)
+                        #print()
                         ambig_sents_count += 1
                         # segment the sentence into parts each containing one ambiguous chunk
                         sentence_segments, prev = [], 0
@@ -314,16 +315,20 @@ def make_xml_rules(scores_fname, prefix, rule_map):
         # read and process other lines
         for line in ifile:
             group_number, rule_number, pattern, weight = line.rstrip('\n').split('\t')
-            if pattern != prev_pattern:
+            if group_number != prev_group_number:
+                # rule group changed, flush pattern, close previuos, open new
+                ofile.write(pattern_to_xml(apertium_token_re.findall(prev_pattern), total_pattern_weight))
+                total_pattern_weight = 0.
+                ofile.write('    </rule>\n  </rule-group>\n  <rule-group>\n    <rule id="{}">\n'.format(rule_map[rule_number]))
+            elif rule_number != prev_rule_number:
+                # rule changed, flush pattern, close previuos rule, open new
+                ofile.write(pattern_to_xml(apertium_token_re.findall(prev_pattern), total_pattern_weight))
+                total_pattern_weight = 0.
+                ofile.write('    </rule>\n    <rule id="{}">\n'.format(rule_map[rule_number]))
+            elif pattern != prev_pattern:
                 # pattern changed, flush previous
                 ofile.write(pattern_to_xml(apertium_token_re.findall(prev_pattern), total_pattern_weight))
                 total_pattern_weight = 0.
-            if group_number != prev_group_number:
-                # rule group changed, close previuos, open new
-                ofile.write('    </rule>\n  </rule-group>\n  <rule-group>\n    <rule id="{}">\n'.format(rule_map[rule_number]))
-            elif rule_number != prev_rule_number:
-                # rule changed, close previuos, open new
-                ofile.write('    </rule>\n    <rule id="{}">\n'.format(rule_map[rule_number]))
             # add up rule-pattern weights
             total_pattern_weight += float(weight)
             prev_group_number, prev_rule_number, prev_pattern = group_number, rule_number, pattern
