@@ -105,11 +105,12 @@ def get_rules(transtree):
 
     # build pattern -> rules numbers dict (rules_dict),
     # and rule number -> rule id dict (rule_id_map)
-    rules_dict, rule_id_map  = {}, {}
+    rules_dict, rule_xmls, rule_id_map  = {}, {}, {}
     for i, rule in enumerate(root.find('section-rules').findall('rule')):
         if 'id' in rule.attrib:
             # rule has 'id' attribute: add it to rule_id_map
             rule_id_map[str(i)] = rule.attrib['id']
+            rule_xmls[str(i)] = rule
         # build pattern
         pattern = tuple(pattern_item.attrib['n'] 
                 for pattern_item in rule.find('pattern').findall('pattern-item'))
@@ -131,7 +132,7 @@ def get_rules(transtree):
     # sort rules to optimize FST building
     rules.sort()
 
-    return rules, ambiguous_rule_groups, rule_id_map
+    return rules, ambiguous_rule_groups, rule_id_map, rule_xmls
 
 def prepare(rfname):
     """
@@ -149,9 +150,9 @@ def prepare(rfname):
         sys.exit(1)
 
     cat_dict = get_cat_dict(transtree)
-    rules, ambiguous_rules, rule_id_map = get_rules(transtree)
+    rules, ambiguous_rules, rule_id_map, rule_xmls = get_rules(transtree)
 
-    return cat_dict, rules, ambiguous_rules, rule_id_map
+    return cat_dict, rules, ambiguous_rules, rule_id_map, rule_xmls
 
 class FST:
     """
@@ -303,7 +304,7 @@ def signature(coverage):
     return tuple([len(group[0]) for group in coverage])
 
 if __name__ == "__main__":
-    cat_dict, rules, ambiguous_rules, rule_id_map = prepare('../apertium-en-es/apertium-en-es.en-es.t1x')
+    cat_dict, rules, ambiguous_rules, rule_id_map, rule_xmls = prepare('../apertium-en-es/apertium-en-es.en-es.t1x')
     pattern_FST = FST(rules)
 
     coverages = pattern_FST.get_lrlm('^prpers<prn><subj><p1><mf><pl>$ ^want# to<vbmod><pp>$ ^wait<vblex><inf>$ ^until<cnjadv>$ ^prpers<prn><subj><p1><mf><pl>$ ^can<vaux><past>$ ^offer<vblex><inf>$ ^what<prn><itg><m><sp>$ ^would<vaux><inf>$ ^be<vbser><inf>$ ^totally<adv>$ ^satisfy<vblex><ger>$ ^for<pr>$ ^consumer<n><pl>$^.<sent>$', cat_dict)

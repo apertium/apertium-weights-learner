@@ -63,16 +63,16 @@ The sample file new-software-sample.txt contains three selected lines with 'new 
 
 The contents of the unpruned w1x file should look like the following:
 ```
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <transfer-weights>
   <rule-group>
-    <rule id="adj-nom">
+    <rule comment="REGLA: ADJ NOM" id="adj-nom" md5="72e0f329e4cb29910163fa9c9d617ec4">
       <pattern weight="0.2940047506474463">
         <pattern-item lemma="new" tags="adj.sint"/>
         <pattern-item lemma="software" tags="n.sg"/>
       </pattern>
     </rule>
-    <rule id="adj-nom-ns">
+    <rule comment="REGLA: ADJ NOM no-swap-version" id="adj-nom-ns" md5="7df4382f378bae45d951c79e287a31e6">
       <pattern weight="1.7059952493525534">
         <pattern-item lemma="new" tags="adj.sint"/>
         <pattern-item lemma="software" tags="n.sg"/>
@@ -80,7 +80,7 @@ The contents of the unpruned w1x file should look like the following:
     </rule>
   </rule-group>
   <rule-group>
-    <rule id="det-adj-nom">
+    <rule comment="REGLA: DET ADJ NOM" id="det-adj-nom" md5="897a67e4ffadec9b7fd515ce0a8d453b">
       <pattern weight="0.262703645221423">
         <pattern-item lemma="its" tags="det.pos.sp"/>
         <pattern-item lemma="own" tags="adj"/>
@@ -92,7 +92,7 @@ The contents of the unpruned w1x file should look like the following:
         <pattern-item lemma="software" tags="n.sg"/>
       </pattern>
     </rule>
-    <rule id="det-adj-nom-ns">
+    <rule comment="REGLA: DET ADJ NOM no-swap-version" id="det-adj-nom-ns" md5="13f1c5ed0615ae8f9d3142aed7a3855f">
       <pattern weight="0.737296354778577">
         <pattern-item lemma="its" tags="det.pos.sp"/>
         <pattern-item lemma="own" tags="adj"/>

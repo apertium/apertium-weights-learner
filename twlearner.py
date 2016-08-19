@@ -1,6 +1,6 @@
 #! /usr/bin/python3
 
-import re, sys, os, pipes, gc
+import re, sys, os, pipes, gc, hashlib
 from time import perf_counter as clock
 from math import exp
 # language model handling
@@ -11,6 +11,20 @@ import twlconfig
 import coverage
 # apertium translator pipelines
 from pipelines import partialTranslator, weightedPartialTranslator
+from tools.simpletok import normalize
+
+try: # see if lxml is installed
+    from lxml import etree
+    if __name__ == "__main__":
+        print("Using lxml library happily ever after.")
+        using_lxml = True
+except ImportError: # it is not
+    import xml.etree.ElementTree as etree
+    if __name__ == "__main__":
+        print("lxml library not found. Falling back to xml.etree,\n"
+              "though it's highly recommended that you install lxml\n"
+              "as it works dramatically faster than xml.etree.")
+        using_lxml = False
 
 tmpweights_fname = 'tmpweights.w1x'
 
@@ -23,43 +37,7 @@ inter_re = re.compile(r'\$.*?\^')
 # apertium token (anything between ^ and $)
 apertium_token_re = re.compile(r'\^(.*?)\$')
 
-# start and finish of weights file
-weights_head = '<?xml version="1.0" encoding="UTF-8"?>\n<transfer-weights>\n'
-weights_tail = '</transfer-weights>'
-
-# regexes used to normalize lines
-# for scoring against language model
-beforepunc_re = re.compile(r'([¿("/])(\w)')
-afterpunc_re = re.compile(r'(\w)([;:,.!?)"/—])')
-quot_re = re.compile("[«»`'“”„‘’‛]")
-numfix_re = re.compile('([0-9]) ([,.:][0-9])')
-beforedash_re = re.compile(r'(\W)-(\w)')
-afterdash_re = re.compile(r'(\w)-(\W)')
-
-def normalize(line):
-    """
-    Tokenize and graphically normalize line
-    for scoring it against language model.
-    """
-    line = line.replace('--', '—').replace(' - ', ' — ')
-    line = quot_re.sub('"', line)
-    line = beforedash_re.sub(r'\1— \2', afterdash_re.sub(r'\1 —\2', line))
-    line = beforepunc_re.sub(r'\1 \2', afterpunc_re.sub(r'\1 \2', line))
-    line = numfix_re.sub(r'\1\2', line)
-    return line.lower()
-
-def pattern_to_xml(pattern, weight=1.):
-    """
-    Create a string with XML representation
-    of weighted pattern for weigths file.
-    """
-    pattern_line = '      <pattern weight="{}">\n'.format(weight)
-    for pattern_item in pattern:
-        parts = pattern_item.split('<', maxsplit=1) + ['']
-        lemma, tags = parts[0], parts[1].strip('>')
-        pattern_line += '        <pattern-item lemma="{}" tags="{}"/>\n'.format(lemma, tags.replace('><', '.'))
-    pattern_line += '      </pattern>\n'
-    return pattern_line
+whitespace_re = re.compile('\s')
 
 def load_rules(pair_data, source, target):
     """
@@ -69,10 +47,10 @@ def load_rules(pair_data, source, target):
     tixbasepath = os.path.join(pair_data, tixbasename)
     binbasepath = os.path.join(pair_data, '{}-{}'.format(source, target))
     tixfname = '.'.join((tixbasepath, 't1x'))
-    cat_dict, rules, ambiguous_rules, rule_id_map = coverage.prepare(tixfname)
+    cat_dict, rules, ambiguous_rules, rule_id_map, rule_xmls = coverage.prepare(tixfname)
     pattern_FST = coverage.FST(rules)
 
-    return tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules, rule_id_map
+    return tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules, rule_id_map, rule_xmls
 
 def make_prefix(corpus, data_folder):
     """
@@ -221,20 +199,21 @@ def translate_ambiguous(weighted_translator, rule_group, pattern, sent_line, rul
     Translate sent_line for each rule in rule_group.
     """
     translation_list = []
-    pattern = pattern_to_xml(pattern)
 
     #for each rule
     for focus_rule in rule_group:
         # create weights file favoring that rule
-        weights_line = weights_head + '  <rule-group>\n'
+        oroot = etree.Element('transfer-weights')
+        et_rulegroup = etree.SubElement(oroot, 'rule-group')
         for rule in rule_group:
-            weights_line += '    <rule id="{}">\n'.format(rule_id_map[str(rule)])
+            et_rule = make_et_rule(str(rule), et_rulegroup, rule_id_map)
             if rule == focus_rule:
-                weights_line += pattern
-            weights_line += '    </rule>\n'
-        weights_line += '  </rule-group>\n' + weights_tail
-        with open(tmpweights_fname, 'w', encoding='utf-8') as wfile:
-            wfile.write(weights_line)
+                et_pattern = make_et_pattern(et_rule, pattern)
+
+        if using_lxml:
+            etree.ElementTree(oroot).write(tmpweights_fname, pretty_print=True, encoding='utf-8', xml_declaration=True)
+        else:
+            etree.ElementTree(oroot).write(tmpweights_fname, encoding='utf-8', xml_declaration=True)
 
         # translate using created weights file
         translation = weighted_translator.translate(sent_line, tmpweights_fname)
@@ -287,7 +266,44 @@ def score_sentences(ambig_sentences_fname, model, prefix):
     print('Scored {} chunks, {} sentences in {:.2f}'.format(chunk_counter, sentence_counter, clock() - btime))
     return ofname
 
-def make_xml_rules(scores_fname, prefix, rule_map):
+def make_et_pattern(et_rule, tokens, weight=1.):
+    """
+    Make pattern element for xml tree
+    with pattern-item elements.
+    """
+    if type(tokens) == type(''):
+        # if tokens is str, tokenize it
+        tokens = apertium_token_re.findall(tokens)
+    et_pattern = etree.SubElement(et_rule, 'pattern')
+    et_pattern.attrib['weight'] = str(weight)
+    for token in tokens:
+        et_pattern_item = etree.SubElement(et_pattern, 'pattern-item')
+        parts = token.split('<', maxsplit=1) + ['']
+        lemma, tags = parts[0], parts[1].strip('>').replace('><', '.')
+        et_pattern_item.attrib['lemma'] = lemma
+        et_pattern_item.attrib['tags'] = tags
+    return et_pattern
+
+def make_et_rule(rule_number, et_rulegroup, rule_map, rule_xmls=None):
+    """
+    Make rule element for xml tree.
+    """
+    et_rule = etree.SubElement(et_rulegroup, 'rule')
+    if rule_xmls is not None:
+        # this part is used for final weights file
+        # copy rule attributes from transfer file
+        et_rule.attrib.update(rule_xmls[rule_number].attrib)
+        # calculate md5 sum of rule text without whitespace
+        # and add it as rule attribute
+        rule_text = etree.tostring(rule_xmls[rule_number], encoding='unicode')
+        clean_rule_text = whitespace_re.sub('', rule_text)
+        et_rule.attrib['md5'] = hashlib.md5(clean_rule_text.encode()).hexdigest()
+    else:
+        # this part is used for temporary weights file
+        et_rule.attrib['id'] = rule_map[rule_number]
+    return et_rule
+
+def make_xml_rules(scores_fname, prefix, rule_map, rule_xmls):
     """
     Sum up the weights for each rule-pattern pair,
     add the result to xml weights file.
@@ -304,39 +320,45 @@ def make_xml_rules(scores_fname, prefix, rule_map):
     pipe.append('sort $IN > $OUT', 'ff')
     pipe.copy(scores_fname, sorted_scores_fname)
 
-    with open(sorted_scores_fname, 'r', encoding='utf-8') as ifile,\
-         open(ofname, 'w', encoding='utf-8') as ofile:
+    # create empty output xml tree
+    oroot = etree.Element('transfer-weights')
+    et_newrulegroup = etree.SubElement(oroot, 'rule-group')
+
+    with open(sorted_scores_fname, 'r', encoding='utf-8') as ifile:
         # read and process the first line
         prev_group_number, prev_rule_number, prev_pattern, weight = ifile.readline().rstrip('\n').split('\t')
         total_pattern_weight = float(weight)
-        ofile.write(weights_head)
-        ofile.write('  <rule-group>\n    <rule id="{}">\n'.format(rule_map[prev_rule_number]))
+        et_newrule = make_et_rule(prev_rule_number, et_newrulegroup, rule_map, rule_xmls)
 
         # read and process other lines
         for line in ifile:
             group_number, rule_number, pattern, weight = line.rstrip('\n').split('\t')
             if group_number != prev_group_number:
-                # rule group changed, flush pattern, close previuos, open new
-                ofile.write(pattern_to_xml(apertium_token_re.findall(prev_pattern), total_pattern_weight))
+                # rule group changed: flush pattern, close previuos, open new
+                et_newpattern = make_et_pattern(et_newrule, prev_pattern, total_pattern_weight)
+                et_newrulegroup = etree.SubElement(oroot, 'rule-group')
+                et_newrule = make_et_rule(rule_number, et_newrulegroup, rule_map, rule_xmls)
                 total_pattern_weight = 0.
-                ofile.write('    </rule>\n  </rule-group>\n  <rule-group>\n    <rule id="{}">\n'.format(rule_map[rule_number]))
             elif rule_number != prev_rule_number:
-                # rule changed, flush pattern, close previuos rule, open new
-                ofile.write(pattern_to_xml(apertium_token_re.findall(prev_pattern), total_pattern_weight))
+                # rule changed: flush previous pattern, create new rule
+                et_newpattern = make_et_pattern(et_newrule, prev_pattern, total_pattern_weight)
+                et_newrule = make_et_rule(rule_number, et_newrulegroup, rule_map, rule_xmls)
                 total_pattern_weight = 0.
-                ofile.write('    </rule>\n    <rule id="{}">\n'.format(rule_map[rule_number]))
             elif pattern != prev_pattern:
-                # pattern changed, flush previous
-                ofile.write(pattern_to_xml(apertium_token_re.findall(prev_pattern), total_pattern_weight))
+                # pattern changed: flush previous
+                et_newpattern = make_et_pattern(et_newrule, prev_pattern, total_pattern_weight)
                 total_pattern_weight = 0.
             # add up rule-pattern weights
             total_pattern_weight += float(weight)
             prev_group_number, prev_rule_number, prev_pattern = group_number, rule_number, pattern
 
         # flush the last rule-pattern
-        ofile.write(pattern_to_xml(apertium_token_re.findall(prev_pattern), total_pattern_weight))
-        ofile.write('    </rule>\n  </rule-group>\n')
-        ofile.write(weights_tail)
+        et_newpattern = make_et_pattern(et_newrule, prev_pattern, total_pattern_weight)
+
+    if using_lxml:
+        etree.ElementTree(oroot).write(ofname, pretty_print=True, encoding='utf-8', xml_declaration=True)
+    else:
+        etree.ElementTree(oroot).write(ofname, encoding='utf-8', xml_declaration=True)
 
     print('Done in {:.2f}'.format(clock() - btime))
     return ofname
@@ -355,8 +377,10 @@ if __name__ == "__main__":
                               twlconfig.data_folder)
 
     # load rules, build rule FST
-    tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules, rule_id_map = \
-        load_rules(twlconfig.apertium_pair_data, twlconfig.source, twlconfig.target)
+    tixbasepath, binbasepath, cat_dict, pattern_FST, \
+    ambiguous_rules, rule_id_map, rule_xmls = \
+                            load_rules(twlconfig.apertium_pair_data,
+                                       twlconfig.source, twlconfig.target)
 
     # detect and store sentences with ambiguity
     ambig_sentences_fname = detect_ambiguous(tagged_fname, prefix, 
@@ -375,7 +399,7 @@ if __name__ == "__main__":
     scores_fname = score_sentences(ambig_sentences_fname, model, prefix)
 
     # sum up weigths for rule-pattern and make final xml
-    make_xml_rules(scores_fname, prefix, rule_id_map)
+    make_xml_rules(scores_fname, prefix, rule_id_map, rule_xmls)
 
     # clean up temporary weights filem
     if os.path.exists(tmpweights_fname):
