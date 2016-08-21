@@ -17,7 +17,7 @@ except ImportError: # it is not
 
 usage_line = 'Usage: ./prune.py INPUT_FILE [OUTPUT_FILE]'
 
-def prune_transfer_weights(ifname, ofname):
+def prune_xml_transfer_weights(using_lxml, ifname, ofname=None):
     """
     Prune the transfer weights file provided in ifname.
 
@@ -38,7 +38,10 @@ def prune_transfer_weights(ifname, ofname):
     except etree.ParseError:
         print('Error parsing rules file \'{}\'. '
               'Is there something wrong with it?'.format(opts.rfname))
-        sys.exit(1)
+        return None
+
+    if ofname is None:
+        ofname = ifname.rsplit('.', maxsplit=1)[0] + '-prunned.w1x'        
 
     # create (empty) output xml tree
     oroot = etree.Element('transfer-weights')
@@ -88,6 +91,8 @@ def prune_transfer_weights(ifname, ofname):
     else:
         etree.ElementTree(oroot).write(ofname, encoding='utf-8', xml_declaration=True)
 
+    return ofname
+
 def xml_pattern_to_str(et_pattern):
     """
     Convert xml pattern item into pattern string.
@@ -114,8 +119,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if len(sys.argv) == 2:
-        ofname = ifname.rsplit('.', maxsplit=1)[0] + '-prunned.w1x'
+        prune_xml_transfer_weights(using_lxml, ifname)
     else:
-        ofname = sys.argv[2]
-            
-    prune_transfer_weights(ifname, ofname)
+        prune_xml_transfer_weights(using_lxml, ifname, sys.argv[2])

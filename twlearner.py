@@ -8,10 +8,11 @@ import kenlm
 # simple config in python file
 import twlconfig
 # module for coverage calculation
-import coverage
+from tools import coverage
 # apertium translator pipelines
-from pipelines import partialTranslator, weightedPartialTranslator
+from tools.pipelines import partialTranslator, weightedPartialTranslator
 from tools.simpletok import normalize
+from tools.prune import prune_xml_transfer_weights
 
 try: # see if lxml is installed
     from lxml import etree
@@ -191,6 +192,10 @@ def detect_ambiguous(corpus, prefix, cat_dict, pattern_FST, ambiguous_rules, tix
                 gc.collect()
                 lbtime = clock()
 
+    # clean up temporary weights file
+    if os.path.exists(tmpweights_fname):
+        os.remove(tmpweights_fname)
+
     print('Done in {:.2f}'.format(clock() - btime))
     return ofname
 
@@ -303,7 +308,7 @@ def make_et_rule(rule_number, et_rulegroup, rule_map, rule_xmls=None):
         et_rule.attrib['id'] = rule_map[rule_number]
     return et_rule
 
-def make_xml_rules(scores_fname, prefix, rule_map, rule_xmls):
+def make_xml_transfer_weights(scores_fname, prefix, rule_map, rule_xmls):
     """
     Sum up the weights for each rule-pattern pair,
     add the result to xml weights file.
@@ -398,11 +403,11 @@ if __name__ == "__main__":
     # estimate rule weights for each ambiguous chunk
     scores_fname = score_sentences(ambig_sentences_fname, model, prefix)
 
-    # sum up weigths for rule-pattern and make final xml
-    make_xml_rules(scores_fname, prefix, rule_id_map, rule_xmls)
+    # sum up weigths for rule-pattern and make unprunned xml
+    weights_fname = make_xml_transfer_weights(scores_fname, prefix, 
+                                              rule_id_map, rule_xmls)
 
-    # clean up temporary weights filem
-    if os.path.exists(tmpweights_fname):
-        os.remove(tmpweights_fname)
+    # prune weights file
+    prunned_fname = prune_xml_transfer_weights(using_lxml, weights_fname)
 
     print('Performed in {:.2f}'.format(clock() - tbtime))

@@ -151,13 +151,3 @@ class weightedPartialTranslator():
             char = self.autogen.stdout.read(1)
 
         return apertium_re.sub('', (b''.join(autogen_output)).decode('utf-8').replace('[][\n]',''))
-
-if __name__ == "__main__":
-    t = weightedPartialTranslator('../apertium-en-es/apertium-en-es.en-es', '../apertium-en-es/en-es')
-
-    with open('./tests/testfile.txt', 'r', encoding='utf-8') as ifile:
-        for line in ifile:
-            print('line:', line)
-            mo = t.translate(line, '../apertium-en-es/apertium-en-es.en-es.w1x')
-            print('mo:', mo)
-            print()

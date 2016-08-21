@@ -304,10 +304,11 @@ def signature(coverage):
     return tuple([len(group[0]) for group in coverage])
 
 if __name__ == "__main__":
-    cat_dict, rules, ambiguous_rules, rule_id_map, rule_xmls = prepare('../apertium-en-es/apertium-en-es.en-es.t1x')
+    cat_dict, rules, ambiguous_rules, rule_id_map, rule_xmls = prepare(sys.argv[1])
     pattern_FST = FST(rules)
 
     coverages = pattern_FST.get_lrlm('^prpers<prn><subj><p1><mf><pl>$ ^want# to<vbmod><pp>$ ^wait<vblex><inf>$ ^until<cnjadv>$ ^prpers<prn><subj><p1><mf><pl>$ ^can<vaux><past>$ ^offer<vblex><inf>$ ^what<prn><itg><m><sp>$ ^would<vaux><inf>$ ^be<vbser><inf>$ ^totally<adv>$ ^satisfy<vblex><ger>$ ^for<pr>$ ^consumer<n><pl>$^.<sent>$', cat_dict)
+
     print('Coverages detected:')
     for coverage in coverages:
         print(coverage)
