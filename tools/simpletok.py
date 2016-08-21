@@ -7,7 +7,7 @@ import sys, re
 # or for sending them to language model training
 beforepunc_re = re.compile(r'([¿("/])(\w)')
 afterpunc_re = re.compile(r'(\w)([;:,.!?)"/—])')
-quot_re = re.compile("[«»`'“”„‘’‛]")
+quot_re = re.compile("[«»`'“”„‘’‛]|&quot;")
 numfix_re = re.compile('([0-9]) ([,.:][0-9])')
 beforedash_re = re.compile(r'(\W)-(\w)')
 afterdash_re = re.compile(r'(\w)-(\W)')
