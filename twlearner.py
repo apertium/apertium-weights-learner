@@ -205,22 +205,22 @@ def translate_ambiguous_sentence(pattern_list, coverage_item, ambig_chunks_count
                                                            ambiguous_rules[sentence_segment[0]],
                                                            sentence_segment[1],
                                                            sentence_segment[2], rule_id_map)
-        output_list = []
-        for rule, translation in translation_list:
-            translated_sentence = ' '.join(sentence_segment[3]
-                                                for sentence_segment
-                                                    in sentence_segments[:j]) +\
-                                  ' ' + translation + ' ' +\
-                                  ' '.join(sentence_segment[3]
-                                                for sentence_segment
-                                                    in sentence_segments[j+1:])
-            output_list.append('{}\t{}'.format(rule, translated_sentence.strip(' ')))
+            output_list = []
+            for rule, translation in translation_list:
+                translated_sentence = ' '.join(sentence_segment[3]
+                                                    for sentence_segment
+                                                        in sentence_segments[:j]) +\
+                                      ' ' + translation + ' ' +\
+                                      ' '.join(sentence_segment[3]
+                                                    for sentence_segment
+                                                        in sentence_segments[j+1:])
+                output_list.append('{}\t{}'.format(rule, translated_sentence.strip(' ')))
 
-        # store results to file
-        # first, print rule group number, pattern, and number of rules in the group
-        print('{}\t^{}$\t{}'.format(sentence_segment[0], '$ ^'.join(sentence_segment[1]), len(output_list)), file=ofile)
-        # then, output all the translations in the following way: rule number, then translated sentence
-        print('\n'.join(output_list), file=ofile)
+            # store results to file
+            # first, print rule group number, pattern, and number of rules in the group
+            print('{}\t^{}$\t{}'.format(sentence_segment[0], '$ ^'.join(sentence_segment[1]), len(output_list)), file=ofile)
+            # then, output all the translations in the following way: rule number, then translated sentence
+            print('\n'.join(output_list), file=ofile)
 
     return ambig_chunks_count
 
