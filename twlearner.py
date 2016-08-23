@@ -156,7 +156,7 @@ def detect_ambiguous(corpus, prefix,
                                                                           ambiguous_rules, rule_id_map,
                                                                           translator, weighted_translator, ofile)
             lines_count += 1
-            if lines_count % 100 == 0:
+            if lines_count % 1000 == 0:
                 print('\n{} total lines\n{} total sentences'.format(lines_count, total_sents_count))
                 print('{} ambiguous sentences\n{} ambiguous chunks'.format(ambig_sents_count, ambig_chunks_count))
                 print('{} botched coverages\nanother {:.4f} elapsed'.format(botched_coverages, clock() - lbtime))
@@ -455,7 +455,7 @@ def detect_ambiguous_parallel(source_corpus, target_corpus, prefix,
                             pass                            
 
             lines_count += 1
-            if lines_count % 100 == 0:
+            if lines_count % 1000 == 0:
                 print('\n{} total lines\n{} ambiguous chunks'.format(lines_count, ambig_chunks_count))
                 print('{} botched coverages\nanother {:.4f} elapsed'.format(botched_coverages, clock() - lbtime))
                 gc.collect()

@@ -69,13 +69,13 @@ def get_cat_dict(transtree):
     root = transtree.getroot()
     cat_dict = {}
     for def_cat in root.find('section-def-cats').findall('def-cat'):
-        for cat_item in def_cat.findall('cat-item'):
-            # make a regex line to recognize lemma-tag pattern
-            re_line = cat_item_to_re(cat_item)
-            # add empty category list if there is none
-            cat_dict.setdefault(re_line, [])
-            # add category to the list
-            cat_dict[re_line].append(def_cat.attrib['n'])
+        # make a regex line to recognize lemma-tag pattern
+        re_line = '|'.join(cat_item_to_re(cat_item)
+                            for cat_item in def_cat.findall('cat-item'))
+        # add empty category list if there is none
+        cat_dict.setdefault(re_line, [])
+        # add category to the list
+        cat_dict[re_line].append(def_cat.attrib['n'])
     return cat_dict
 
 def get_cats_by_line(line, cat_dict):

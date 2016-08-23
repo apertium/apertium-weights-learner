@@ -5,9 +5,7 @@ mode = "mono"
 #mode = "parallel"
 
 # full path to source language corpus from which to learn the rules
-#source_language_corpus = "/home/nm/source/apertium/weighted-transfer/apertium-weights-learner/data/2007-en-100.txt"
-source_language_corpus = "/home/nm/source/apertium/weighted-transfer/apertium-weights-learner/data/new-software-sample.txt"
-#source_language_corpus = "/home/nm/source/apertium/weighted-transfer/apertium-weights-learner/data/nc-v7.es-en.en.100.txt"
+source_language_corpus = "/home/nm/source/apertium/weighted-transfer/apertium-weights-learner/data/2007-en-100000.txt"
 
 # full path to target language corpus (only for parallel mode)
 #target_language_corpus = "/home/nm/source/apertium/weighted-transfer/apertium-weights-learner/data/nc-v7.es-en.es.100.txt"
