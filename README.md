@@ -1,6 +1,6 @@
 # apertium-weights-learner
 
-This is a python3 script that can be used for transfer weights training (see http://wiki.apertium.org/wiki/Ideas_for_Google_Summer_of_Code/Weighted_transfer_rules).
+This is a python3 script that can be used for transfer weights training (see http://wiki.apertium.org/wiki/Ideas_for_Google_Summer_of_Code/Weighted_transfer_rules). For now, it only allows for fully lexicalized patterns to be extracted (i.e., a sequence of tokens with lemmas and full sets of tags).
 
 ## Prerequisites
 To run this version of transfer weights training for a given language pair, you need:
@@ -8,9 +8,6 @@ To run this version of transfer weights training for a given language pair, you 
 * apertium with apertium-transfer modified to use transfer weights (may be checked out from https://svn.code.sf.net/p/apertium/svn/branches/weighted-transfer/)
 * language pair of interest with ambiguous rules marked with ids (for an example, see the version of en-es pair from https://svn.code.sf.net/p/apertium/svn/branches/weighted-transfer/)
 * kenlm (https://kheafield.com/code/kenlm/)
-
-## Get the corpora
-The corpora can be obtained from http://www.statmt.org/wmt12/translation-task.html
 
 ## Prepare language model
 In order to run the training, you need to make a language model for your target language.
@@ -54,7 +51,7 @@ Be advised that you might need additional disk space rougly half the arpa file v
 In order to ensure that everything works fine, you may perform a sample run using prepared corpus:
 
 * Download and unpack all parts (years 2007 to 2011) of Spanish news crawl corpora from http://www.statmt.org/wmt12/translation-task.html
-* Concatenate them using glue.py script from tools folder (i.e., assuming you are in apertium-weights-learner folder):
+* Concatenate them using glue.py script from 'tools' folder (i.e., assuming you are in apertium-weights-learner folder):
 ```
 tools/glue.py path/to/folder/where/corpus/parts/are glued_corpus
 ```
@@ -121,10 +118,13 @@ The contents of the unpruned w1x file should look like the following:
 This would mean that '-ns' versions of both rules are preferred for each pattern, which tells the transfer module that the translations of 'new' and 'software' should not be swapped (as specified in '-ns' versions of both rules), since in Spanish the adjective 'nuevo' is usually put before the noun as opposed to the fact that most adjectives are put after the noun.
 
 ## Pruning
-You can also prune the obtained weights file with prune.py script from tools folder. Pruning is a process of eliminating redundant weighted patterns, i.e.:
+You can also prune the obtained weights file with prune.py script from 'tools' folder. Pruning is a process of eliminating redundant weighted patterns, i.e.:
 For each rule group:
 for each pattern that is present in more than one rule:
 * keep only the entry in the rule with the highest weight, and set the weight to 1
 * if the rule with the entry with weight = 1 happens to be the default (first) rule, remove that entry from the weights file altogether, since it will be the rule applied anyway.
 
-The idea behind the pruning process is that in fact, we only want to weight exceptions from the default rule. Pruning doesn't offer any speed advantages with the current realization but might be useful in the future.
+The idea behind the pruning process is that in fact, we only want to weight exceptions from the default rule. Pruned weights file doesn't offer any significant speed advantages with the current realization but it still reduces memory footprint at translation time and this allows to learn weights from bigger corpora.
+
+## Testing
+Once the weights are obtained, their impact can be tested on a parallel corpus using the 'weights-test.sh' script from the 'testing' folder, which contains a simple config akin to the weights learning script.
