@@ -5,6 +5,7 @@ from optparse import OptionParser
 from configparser import ConfigParser
 from time import perf_counter as clock
 from math import exp
+from itertools import product
 # language model handling
 import kenlm
 # module for coverage calculation
@@ -92,7 +93,7 @@ def search_ambiguous(ambiguous_rules, coverage):
             pattern_list.append((i, part[1], tuple(part[0])))
     return pattern_list
 
-def detect_ambiguous(corpus, prefix, 
+def detect_ambiguous_mono(corpus, prefix, 
                      cat_dict, pattern_FST, ambiguous_rules,
                      tixfname, binfname, rule_id_map):
     """
@@ -235,7 +236,7 @@ def translate_ambiguous_segment(weighted_translator, rule_group,
 
     return translation_list
 
-def score_sentences(ambig_sentences_fname, model, prefix):
+def score_sentences(ambig_sentences_fname, model, prefix, generalize=False):
     """
     Score translated sentences against language model.
     """
@@ -251,7 +252,7 @@ def score_sentences(ambig_sentences_fname, model, prefix):
         while reading:
             try:
                 line = ifile.readline()
-                group_number, pattern, rulecount = line.rstrip('\n').split('\t')
+                rule_group_number, pattern, rulecount = line.rstrip('\n').split('\t')
                 weights_list, total = [], 0.
 
                 # read and process as much following lines as specified by rulecount
@@ -265,9 +266,16 @@ def score_sentences(ambig_sentences_fname, model, prefix):
                     total += score
                     sentence_counter += 1
 
-                # normalize and print out         
+                # normalize and print out
+                if generalize:
+                    divided_pattern = divide_pattern(pattern)
+                    mask_patterns = list(product([1, 0], repeat=len(divided_pattern)))
                 for rule_number, score in weights_list:
-                    print(group_number, rule_number, pattern, score / total, sep='\t', file=ofile)
+                    print(rule_group_number, rule_number, pattern, score / total, sep='\t', file=ofile)
+                    if generalize:
+                        print_generalized_patterns(divided_pattern, mask_patterns,
+                                                   rule_group_number, rule_number,
+                                                   score / total, ofile)
                 chunk_counter += 1
 
             except ValueError:
@@ -294,7 +302,8 @@ def make_et_pattern(et_rule, tokens, weight=1.):
         et_pattern_item = etree.SubElement(et_pattern, 'pattern-item')
         parts = token.split('<', maxsplit=1) + ['']
         lemma, tags = parts[0], parts[1].strip('>').replace('><', '.')
-        et_pattern_item.attrib['lemma'] = lemma
+        if lemma != '*':
+            et_pattern_item.attrib['lemma'] = lemma
         et_pattern_item.attrib['tags'] = tags
     return et_pattern
 
@@ -317,7 +326,7 @@ def make_et_rule(rule_number, et_rulegroup, rule_map, rule_xmls=None):
         et_rule.attrib['id'] = rule_map[rule_number]
     return et_rule
 
-def make_xml_transfer_weights(scores_fname, prefix, rule_map, rule_xmls):
+def make_xml_transfer_weights_mono(scores_fname, prefix, rule_map, rule_xmls):
     """
     Sum up the weights for each rule-pattern pair,
     add the result to xml weights file.
@@ -380,9 +389,30 @@ def make_xml_transfer_weights(scores_fname, prefix, rule_map, rule_xmls):
     print('Done in {:.2f}'.format(clock() - btime))
     return ofname
 
+def divide_pattern(pattern):
+    if type(pattern) == type(''):
+        pattern = pattern.strip('^$').split('$ ^')
+
+    divided_pattern = []
+    for token in pattern:
+        token = token.split('<', maxsplit=1) + ['']
+        divided_pattern.append((token[0], ('<' + token[1]) 
+                                    if token[1] != '' else token[1]))
+    return divided_pattern
+
+def print_generalized_patterns(divided_pattern, mask_patterns,
+                               rule_group_number, rule_number, weight, ofile):
+    for mask in mask_patterns[1:]:
+        generalized_pattern = []
+        for mask_pos, (lemma, tags) in zip(mask, divided_pattern):
+            generalized_pattern.append(('*' if mask_pos == 0 else lemma) + tags)
+        genpattern_chunk = '^' + '$ ^'.join(generalized_pattern) + '$'
+        print(rule_group_number, rule_number, genpattern_chunk, weight, sep='\t', file=ofile)
+
 def detect_ambiguous_parallel(source_corpus, target_corpus, prefix, 
                               cat_dict, pattern_FST, ambiguous_rules,
-                              tixfname, binfname, rule_id_map):
+                              tixfname, binfname, rule_id_map,
+                              generalize=False):
     """
     Find ambiguous chunks.
     Translate them in all possible ways.
@@ -429,12 +459,18 @@ def detect_ambiguous_parallel(source_corpus, target_corpus, prefix,
                                                                    pattern_chunk, pattern_chunk,
                                                                    rule_id_map)
                     tl_line = normalize(tl_line)
-                    for rule, translation in translation_list:
+                    for rule_number, translation in translation_list:
                         translation = normalize(translation)
                         if (translation in tl_line):
                             #print('{} IN {}'.format(translation, tl_line))
-                            print(rule_group_number, rule, pattern_chunk, '1.0',
+                            print(rule_group_number, rule_number, pattern_chunk, '1.0',
                                   sep='\t', file=ofile)
+                            if generalize:
+                                divided_pattern = divide_pattern(pattern)
+                                mask_patterns = list(product([1, 0], repeat=len(pattern)))
+                                print_generalized_patterns(divided_pattern, mask_patterns,
+                                                           rule_group_number, rule_number,
+                                                           1.0, ofile)
                         else:
                             #print('{} NOT IN {}'.format(translation, tl_line))
                             pass                            
@@ -557,11 +593,11 @@ def learn_from_monolingual(config):
                                        config.get('DIRECTION', 'target'))
 
     # detect and store sentences with ambiguity
-    ambig_sentences_fname = detect_ambiguous(tagged_fname, prefix, 
-                                             cat_dict, pattern_FST,
-                                             ambiguous_rules,
-                                             tixbasepath, binbasepath,
-                                             rule_id_map)
+    ambig_sentences_fname = detect_ambiguous_mono(tagged_fname, prefix, 
+                                                  cat_dict, pattern_FST,
+                                                  ambiguous_rules,
+                                                  tixbasepath, binbasepath,
+                                                  rule_id_map)
 
     # load language model
     print('Loading language model.')
@@ -570,11 +606,12 @@ def learn_from_monolingual(config):
     print('Done in {:.2f}'.format(clock() - btime))
 
     # estimate rule weights for each ambiguous chunk
-    scores_fname = score_sentences(ambig_sentences_fname, model, prefix)
+    scores_fname = score_sentences(ambig_sentences_fname, model, prefix,
+                                   config.get('LEARNING', 'generalize') == 'yes')
 
     # sum up weights for rule-pattern and make unprunned xml
-    weights_fname = make_xml_transfer_weights(scores_fname, prefix, 
-                                              rule_id_map, rule_xmls)
+    weights_fname = make_xml_transfer_weights_mono(scores_fname, prefix, 
+                                                   rule_id_map, rule_xmls)
 
     # prune weights file
     prunned_fname = prune_xml_transfer_weights(using_lxml, weights_fname)
@@ -609,7 +646,8 @@ def learn_from_parallel(config):
                                              cat_dict, pattern_FST,
                                              ambiguous_rules,
                                              tixbasepath, binbasepath,
-                                             rule_id_map)
+                                             rule_id_map,
+                                             config.get('LEARNING', 'generalize') == 'yes')
 
     # sum up and normalize weights for rule-pattern and make unprunned xml
     weights_fname = make_xml_transfer_weights_parallel(scores_fname, prefix, 
@@ -666,7 +704,8 @@ def validate_config(config_fname):
             print('Target language corpus "{}" not found'.format(config.get('LEARNING', 'target corpus')))
             sys.exit(1)
     else:
-        print('Invalid mode {}. Please specify either mono or parallel.'.format(config.get('LEARNING', 'mode')))
+        print('Invalid mode {}.'.format(config.get('LEARNING', 'mode')),
+              'Please specify either mono or parallel.')
         sys.exit(1)
 
     if not config.has_option('LEARNING', 'data'):
@@ -674,6 +713,11 @@ def validate_config(config_fname):
         sys.exit(1)
     if not os.path.exists(config.get('LEARNING', 'data')):
         os.makedirs(config.get('LEARNING', 'data'))
+
+    if config.has_option('LEARNING', 'generalize') and\
+       config.get('LEARNING', 'generalize') not in {'yes', 'no'}:
+        print('Config option generalize must be either yes or no.')
+        sys.exit(1)
 
     print("Config file ok.")
     return config

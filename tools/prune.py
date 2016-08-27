@@ -99,8 +99,8 @@ def xml_pattern_to_str(et_pattern):
     """
     pattern_item_list = []
     for et_pattern_item in et_pattern:
-        pattern_item_str = '^{}'.format(et_pattern_item.attrib['lemma'])
-        tags = et_pattern_item.attrib['lemma']
+        pattern_item_str = '^{}'.format(et_pattern_item.attrib.get('lemma', '*'))
+        tags = et_pattern_item.attrib['tags']
         if tags != '':
             pattern_item_str += '<{}>$'.format(tags.replace('.', '><'))
         else:
