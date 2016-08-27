@@ -1,12 +1,12 @@
 #! /usr/bin/python3
 
 import re, sys, os, pipes, gc, hashlib
+from optparse import OptionParser
+from configparser import ConfigParser
 from time import perf_counter as clock
 from math import exp
 # language model handling
 import kenlm
-# simple config in python file
-import twlconfig
 # module for coverage calculation
 from tools import coverage
 # apertium translator pipelines
@@ -14,21 +14,10 @@ from tools.pipelines import partialTranslator, weightedPartialTranslator
 from tools.simpletok import normalize
 from tools.prune import prune_xml_transfer_weights
 
-try: # see if lxml is installed
-    from lxml import etree
-    if __name__ == "__main__":
-        print("Using lxml library happily ever after.")
-        using_lxml = True
-except ImportError: # it is not
-    import xml.etree.ElementTree as etree
-    if __name__ == "__main__":
-        print("lxml library not found. Falling back to xml.etree,\n"
-              "though it's highly recommended that you install lxml\n"
-              "as it works dramatically faster than xml.etree.\n"
-              "Also, it supports pretty print.")
-        using_lxml = False
-
+default_confname = 'default.ini'
 tmpweights_fname = 'tmpweights.w1x'
+mono_mode = 'mono'
+parl_mode = 'parallel'
 
 # regular expression to cut out a sentence 
 sent_re = re.compile('.*?<sent>\$|.+?$')
@@ -54,25 +43,21 @@ def load_rules(pair_data, source, target):
 
     return tixbasepath, binbasepath, cat_dict, pattern_FST, ambiguous_rules, rule_id_map, rule_xmls
 
-def make_prefix(data_folder, source_corpus, target_corpus=None):
+def make_prefix(config):
     """
     Make common prefix for all intermediate files.
     """
-    try:
-        fname_common_prefix = twlconfig.fname_common_prefix
-        prefix = os.path.join(data_folder, fname_common_prefix)
-    except AttributeError:
-        source_basename = os.path.basename(source_corpus)
-        trimmed_source_basename = os.path.splitext(source_basename)[0]
-        if target_corpus is None:
-            trimmed_basename = trimmed_source_basename
-        else:
-            target_basename = os.path.basename(target_corpus)
-            trimmed_target_basename = os.path.splitext(target_basename)[0]
-            trimmed_basename = '{}-{}'.format(trimmed_source_basename, 
-                                              trimmed_target_basename)
-        prefix = os.path.join(data_folder, trimmed_basename)
-    return prefix
+    if config.has_option('LEARNING', 'prefix'):
+        return os.path.join(config.get('LEARNING', 'data'),
+                            config.get('LEARNING', 'prefix'))
+
+    source_basename = os.path.basename(config.get('LEARNING', 'source corpus'))
+    if config.get('LEARNING', 'mode') == mono_mode:
+        basename = source_basename
+    else:
+        target_basename = os.path.basename(config.get('LEARNING', 'target corpus'))
+        basename = '{}-{}'.format(source_basename, target_basename)
+    return os.path.join(data_folder, basename)
 
 def tag_corpus(pair_data, source, target, corpus, prefix, data_folder):
     """
@@ -547,27 +532,29 @@ def make_xml_transfer_weights_parallel(scores_fname, prefix, rule_map, rule_xmls
     print('Done in {:.2f}'.format(clock() - btime))
     return ofname
 
-def learn_from_monolingual():
+def learn_from_monolingual(config):
     """
     Learn rule weights from monolingual corpus
     using pretrained language model.
     """
     print('Learning rule weights from monolingual corpus with pretrained language model.')
 
-    prefix = make_prefix(twlconfig.data_folder,
-                         twlconfig.source_language_corpus)
+    prefix = make_prefix(config)
 
     # tag corpus
-    tagged_fname = tag_corpus(twlconfig.apertium_pair_data, 
-                              twlconfig.source, twlconfig.target, 
-                              twlconfig.source_language_corpus, prefix,
-                              twlconfig.data_folder)
+    tagged_fname = tag_corpus(config.get('APERTIUM', 'pair data'), 
+                              config.get('DIRECTION', 'source'),
+                              config.get('DIRECTION', 'target'), 
+                              config.get('LEARNING', 'source corpus'),
+                              prefix,
+                              config.get('LEARNING', 'data'))
 
     # load rules, build rule FST
     tixbasepath, binbasepath, cat_dict, pattern_FST, \
     ambiguous_rules, rule_id_map, rule_xmls = \
-                            load_rules(twlconfig.apertium_pair_data,
-                                       twlconfig.source, twlconfig.target)
+                            load_rules(config.get('APERTIUM', 'pair data'),
+                                       config.get('DIRECTION', 'source'), 
+                                       config.get('DIRECTION', 'target'))
 
     # detect and store sentences with ambiguity
     ambig_sentences_fname = detect_ambiguous(tagged_fname, prefix, 
@@ -579,7 +566,7 @@ def learn_from_monolingual():
     # load language model
     print('Loading language model.')
     btime = clock()
-    model = kenlm.Model(twlconfig.language_model)
+    model = kenlm.Model(config.get('LEARNING', 'language model'))
     print('Done in {:.2f}'.format(clock() - btime))
 
     # estimate rule weights for each ambiguous chunk
@@ -592,31 +579,32 @@ def learn_from_monolingual():
     # prune weights file
     prunned_fname = prune_xml_transfer_weights(using_lxml, weights_fname)
 
-def learn_from_parallel():
+def learn_from_parallel(config):
     """
     Learn rule weights from parallel corpus (no language model required).
     """
     print('Learning rule weights from parallel corpus.')
 
-    prefix = make_prefix(twlconfig.data_folder,
-                         twlconfig.source_language_corpus,
-                         twlconfig.target_language_corpus)
+    prefix = make_prefix(config)
 
     # tag corpus
-    tagged_fname = tag_corpus(twlconfig.apertium_pair_data, 
-                              twlconfig.source, twlconfig.target, 
-                              twlconfig.source_language_corpus, prefix,
-                              twlconfig.data_folder)
+    tagged_fname = tag_corpus(config.get('APERTIUM', 'pair data'), 
+                              config.get('DIRECTION', 'source'),
+                              config.get('DIRECTION', 'target'), 
+                              config.get('LEARNING', 'source corpus'),
+                              prefix,
+                              config.get('LEARNING', 'data'))
 
     # load rules, build rule FST
     tixbasepath, binbasepath, cat_dict, pattern_FST, \
     ambiguous_rules, rule_id_map, rule_xmls = \
-                            load_rules(twlconfig.apertium_pair_data,
-                                       twlconfig.source, twlconfig.target)
+                            load_rules(config.get('APERTIUM', 'pair data'),
+                                       config.get('DIRECTION', 'source'), 
+                                       config.get('DIRECTION', 'target'))
 
     # detect, score and store chunks with ambiguity
     scores_fname = detect_ambiguous_parallel(tagged_fname,
-                                             twlconfig.target_language_corpus,
+                                             config.get('LEARNING', 'target corpus'),
                                              prefix,
                                              cat_dict, pattern_FST,
                                              ambiguous_rules,
@@ -630,83 +618,110 @@ def learn_from_parallel():
     # prune xml weights file
     prunned_fname = prune_xml_transfer_weights(using_lxml, weights_fname)
 
-def validate_config():
+
+def validate_config(config_fname):
     """
-    Try reading variables from config file and perform basic sanity checks.
+    Try reading options from config file and perform basic sanity checks.
     """
-    try:
-        mode = twlconfig.mode
-    except AttributeError:
-        print('Undefined mode. Please specify either "mono" or "parallel".')
+    print('Validating config file "{}".'.format(config_fname))
+    config = ConfigParser()
+    config.read(config_fname)
+
+    if not config.has_option('LEARNING', 'mode'):
+        print('Undefined learning mode. Please specify either mono or parallel.')
         sys.exit(1)
 
-    try:
-        apertium_pair_name = twlconfig.apertium_pair_name
-    except AttributeError:
-        print('Undefined apertium_pair_name.')
+    if not config.has_option('APERTIUM', 'pair name'):
+        print('Undefined Apertium pair name.')
         sys.exit(1)
 
-    try:
-        apertium_pair_data = twlconfig.apertium_pair_data
-        if not os.path.exists(twlconfig.apertium_pair_data):
-            print('Apertium language pair data folder "{}" not found'.format(twlconfig.apertium_pair_data))
-            sys.exit(1)
-    except AttributeError:
-        print('Undefined apertium_pair_data.')
+    if not config.has_option('APERTIUM', 'pair data'):
+        print('Undefined Apertium pair data folder.')
         sys.exit(1)
 
-    try:
-        source = twlconfig.source
-        target = twlconfig.target
-    except AttributeError:
+    if not config.has_option('DIRECTION', 'source') or not config.has_option('DIRECTION', 'target'):
         print('Undefined direction (source and/or target).')
         sys.exit(1)
 
-    try:
-        source_language_corpus = twlconfig.source_language_corpus
-        if not os.path.exists(twlconfig.source_language_corpus):
-            print('Source language corpus "{}" not found'.format(twlconfig.source_language_corpus))
-            sys.exit(1)
-    except AttributeError:
-        print('Undefined source_language_corpus.')
+    if not config.has_option('LEARNING', 'source corpus'):
+        print('Undefined source language corpus for learning.')
         sys.exit(1)
 
-    if mode == "mono":
-        try:
-            language_model = twlconfig.language_model
-            if not os.path.exists(twlconfig.language_model):
-                print('Language model "{}" not found'.format(twlconfig.language_model))
-                sys.exit(1)
-        except AttributeError:
+    if not os.path.exists(config.get('LEARNING', 'source corpus')):
+        print('Source language corpus "{}" not found'.format(config.get('LEARNING', 'source corpus')))
+        sys.exit(1)
+
+    if config.get('LEARNING', 'mode') == mono_mode:
+        if not config.has_option('LEARNING', 'language model'):
             print('Undefined language model.')
             sys.exit(1)
-    elif mode == "parallel":
-        try:
-            tl_corpus = twlconfig.target_language_corpus
-            if not os.path.exists(twlconfig.target_language_corpus):
-                print('Target language corpus "{}" not found'.format(twlconfig.target_language_corpus))
-                sys.exit(1)
-        except AttributeError:
-            print('Undefined target_language_corpus.')
+        if not os.path.exists(config.get('LEARNING', 'language model')):
+            print('Language model "{}" not found'.format(config.get('LEARNING', 'language model')))
+            sys.exit(1)
+    elif config.get('LEARNING', 'mode') == parl_mode:
+        if not config.has_option('LEARNING', 'target corpus'):
+            print('Undefined target language corpus for parallel learning.')
+            sys.exit(1)
+        if not os.path.exists(config.get('LEARNING', 'target corpus')):
+            print('Target language corpus "{}" not found'.format(config.get('LEARNING', 'target corpus')))
             sys.exit(1)
     else:
-        print('Invalid mode {}. Please specify either "mono" or "parallel".'.format(mode))
-
-    try:
-        data_folder = twlconfig.data_folder
-        if not os.path.exists(twlconfig.data_folder):
-            os.makedirs(twlconfig.data_folder)
-    except AttributeError:
-        print('Undefined data_folder.')
+        print('Invalid mode {}. Please specify either mono or parallel.'.format(config.get('LEARNING', 'mode')))
         sys.exit(1)
 
+    if not config.has_option('LEARNING', 'data'):
+        print('Undefined data folder.')
+        sys.exit(1)
+    if not os.path.exists(config.get('LEARNING', 'data')):
+        os.makedirs(config.get('LEARNING', 'data'))
+
+    print("Config file ok.")
+    return config
+
+def get_options():
+    """
+    Parse commandline arguments and options
+    """
+    usage = "USAGE: python3 %prog [--config CONFIG_FILE]"
+    op = OptionParser(usage=usage)
+
+    op.add_option("-c", "--config", dest="confname", default=None,
+                  help="use config specified in CONFIG_FILE. Default config is specified in default.ini", metavar="CONFIG_FILE")
+
+    (opts, args) = op.parse_args()
+
+    if len(args) > 0:
+        op.error("this script gets no arguments.")
+        op.print_help()
+        sys.exit(1)
+
+    return opts.confname
+
 if __name__ == "__main__":
-    validate_config()
+    confname = get_options()
+    if confname is not None:
+        config = validate_config(confname)
+    else:
+        config = validate_config(default_confname)
+
+    print("Checking for lxml library.")
+    try: # see if lxml is installed
+        from lxml import etree
+        print("Using lxml library.")
+        using_lxml = True
+    except ImportError: # it is not
+        import xml.etree.ElementTree as etree
+        print("lxml library not found. Falling back to xml.etree,\n"
+              "though it's highly recommended that you install lxml\n"
+              "as it works dramatically faster than xml.etree.\n"
+              "Also, it supports pretty print.")
+        using_lxml = False
+
     tbtime = clock()
 
-    if twlconfig.mode == "mono":
-        learn_from_monolingual()
-    elif twlconfig.mode == "parallel":
-        learn_from_parallel()
+    if config.get('LEARNING', 'mode') == mono_mode:
+        learn_from_monolingual(config)
+    elif config.get('LEARNING', 'mode') == parl_mode:
+        learn_from_parallel(config)
 
     print('Performed in {:.2f}'.format(clock() - tbtime))

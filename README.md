@@ -41,10 +41,15 @@ bin/build_binary -T FOLDER_FOR_TMP_FILE MODEL_NAME.arpa.gz MODEL_NAME.mmap
 Be advised that you might need additional disk space rougly half the arpa file volume for your binary.
 
 ## Run training
-* Edit configuration file twlconfig.py, which is (hopefully) self-explanatory.
+* Edit configuration file default.ini, which is (hopefully) self-explanatory, or specify your own config in a separate file.
 * Run training script:
+** with default config:
 ```
-./twlearner.py
+python3 twlearner.py
+```
+** with user-defined config in a file config.ini:
+```
+python3 twlearner.py -c 'config.ini'
 ```
 
 ## Sample run

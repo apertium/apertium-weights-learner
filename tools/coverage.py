@@ -246,6 +246,9 @@ class FST:
 
                     # if nothing worked, just discard this coverage
 
+            if len(new_coverage_list) > 1024:
+                return []
+
             coverage_list, state_list = new_coverage_list, new_state_list
 
         # finalize coverages
