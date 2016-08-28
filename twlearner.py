@@ -58,7 +58,7 @@ def make_prefix(config):
     else:
         target_basename = os.path.basename(config.get('LEARNING', 'target corpus'))
         basename = '{}-{}'.format(source_basename, target_basename)
-    return os.path.join(data_folder, basename)
+    return os.path.join(config.get('LEARNING', 'data'), basename)
 
 def tag_corpus(pair_data, source, target, corpus, prefix, data_folder):
     """

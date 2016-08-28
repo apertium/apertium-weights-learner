@@ -138,4 +138,4 @@ The idea behind the pruning process is that in fact, we only want to weight exce
 If you just killed 5 hours of your machine time to obtain a weights file with generalized patterns and then suddenly realized that you want a file without them as well, you can use remgen.py from 'tools' folder to achieve exactly that. 
 
 ## Testing
-Once the weights are obtained, their impact can be tested on a parallel corpus using the 'weights-test.sh' script from the 'testing' folder, which contains a simple config akin to the weights learning script.
+Once the weights are obtained, their impact can be tested on a parallel corpus using the 'weights-test.sh' script from the 'testing' folder, which contains a simple config akin to the weights learning script. If you want to test your weights specifically on the lines containing ambiguous chunks, you can first run your test corpora through condense.py script from 'tools' folder.
