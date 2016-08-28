@@ -5,7 +5,7 @@ import sys, os
 try: # see if lxml is installed
     from lxml import etree
     if __name__ == "__main__":
-        print("Using lxml library happily ever after.")
+        print("Using lxml library.")
         using_lxml = True
 except ImportError: # it is not
     import xml.etree.ElementTree as etree
@@ -15,7 +15,7 @@ except ImportError: # it is not
               "as it works dramatically faster than xml.etree.")
         using_lxml = False
 
-usage_line = 'Usage: ./prune.py INPUT_FILE [OUTPUT_FILE]'
+usage_line = 'Usage: python3 prune.py INPUT_FILE [OUTPUT_FILE]'
 
 def prune_xml_transfer_weights(using_lxml, ifname, ofname=None):
     """
@@ -36,12 +36,12 @@ def prune_xml_transfer_weights(using_lxml, ifname, ofname=None):
     try:
         iroot = etree.parse(ifname).getroot()
     except etree.ParseError:
-        print('Error parsing rules file \'{}\'. '
+        print('Error parsing weights file \'{}\'. '
               'Is there something wrong with it?'.format(opts.rfname))
         return None
 
     if ofname is None:
-        ofname = ifname.rsplit('.', maxsplit=1)[0] + '-prunned.w1x'        
+        ofname = ifname.rsplit('.', maxsplit=1)[0] + '-prunned.w1x'
 
     # create (empty) output xml tree
     oroot = etree.Element('transfer-weights')

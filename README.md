@@ -73,7 +73,7 @@ bin/build_binary -T folder/for/tmpfile model.arpa.gz model.mmap
 
 The sample file new-software-sample.txt contains three selected lines with 'new software' and 'this new software' patterns, each of which triggers a pair of ambiguous rules from apertium-en-es.en-es.t1x file, namely ['adj-nom', 'adj-nom-ns'] and ['det-adj-nom', 'det-adj-nom-ns']. Speaking informally, these rules are used to transfer sequences of (adjective, noun) and (determiner, adjective, noun). The first rule in each ambiguous pair specifies that the translations of the adjective and the noun are to be swapped, which is usual for Spanish, hence these rule are specified before their '-ns' counterparts indicating that these are the default rules. The second rule in each ambiguous pair specifies that the translations of the adjective and the noun are not to be swapped, which sometimes happens and depends on lexical units involved.
 
-The contents of the unpruned w1x file should look like the following:
+The contents of the unpruned w1x file without generalizing patterns should look like the following:
 ```
 <?xml version='1.0' encoding='UTF-8'?>
 <transfer-weights>
@@ -122,6 +122,9 @@ The contents of the unpruned w1x file should look like the following:
 
 This would mean that '-ns' versions of both rules are preferred for each pattern, which tells the transfer module that the translations of 'new' and 'software' should not be swapped (as specified in '-ns' versions of both rules), since in Spanish the adjective 'nuevo' is usually put before the noun as opposed to the fact that most adjectives are put after the noun.
 
+## Generalizing the patterns
+Setting parameter generalize to yes in config file allows the learning script to learn partially generalized patterns as well, i.e. lemmas are partially removed from the pattern in all possible combinations and stored with the same scores as for the full pattern.
+
 ## Pruning
 You can also prune the obtained weights file with prune.py script from 'tools' folder. Pruning is a process of eliminating redundant weighted patterns, i.e.:
 For each rule group:
@@ -130,6 +133,9 @@ for each pattern that is present in more than one rule:
 * if the rule with the entry with weight = 1 happens to be the default (first) rule, remove that entry from the weights file altogether, since it will be the rule applied anyway.
 
 The idea behind the pruning process is that in fact, we only want to weight exceptions from the default rule. Pruned weights file doesn't offer any significant speed advantages with the current realization but it still reduces memory footprint at translation time and this allows to learn weights from bigger corpora.
+
+## Removing generalized patterns
+If you just killed 5 hours of your machine time to obtain a weights file with generalized patterns and then suddenly realized that you want a file without them as well, you can use remgen.py from 'tools' folder to achieve exactly that. 
 
 ## Testing
 Once the weights are obtained, their impact can be tested on a parallel corpus using the 'weights-test.sh' script from the 'testing' folder, which contains a simple config akin to the weights learning script.
