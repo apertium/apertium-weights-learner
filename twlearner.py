@@ -602,7 +602,7 @@ def learn_from_monolingual(config):
     # load language model
     print('Loading language model.')
     btime = clock()
-    model = kenlm.Model(config.get('LEARNING', 'language model'))
+    model = kenlm.LanguageModel(config.get('LEARNING', 'language model'))
     print('Done in {:.2f}'.format(clock() - btime))
 
     # estimate rule weights for each ambiguous chunk
