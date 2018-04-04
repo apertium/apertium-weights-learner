@@ -9,7 +9,7 @@ from itertools import product
 # language model handling
 import kenlm
 # module for coverage calculation
-from tools import coverage
+from tools import coverage_new as coverage
 # apertium translator pipelines
 from tools.pipelines import partialTranslator, weightedPartialTranslator
 from tools.simpletok import normalize
@@ -87,10 +87,12 @@ def search_ambiguous(ambiguous_rules, coverage):
     Look for patterns covered by one of the ambiguous rules in ambiguous_rules.
     If found, return the rules and their patterns.
     """
+
     pattern_list = []
     for i, part in enumerate(coverage):
         if part[1] in ambiguous_rules:
             pattern_list.append((i, part[1], tuple(part[0])))
+
     return pattern_list
 
 def detect_ambiguous_mono(corpus, prefix, 
@@ -139,8 +141,7 @@ def detect_ambiguous_mono(corpus, prefix,
                         # ...translate them, and output them
                         ambig_sents_count += 1
                         ambig_chunks_count = translate_ambiguous_sentence(pattern_list, coverage_item, ambig_chunks_count,
-                                                                          ambiguous_rules, rule_id_map,
-                                                                          translator, weighted_translator, ofile)
+                                                                          ambiguous_rules, rule_id_map, translator, weighted_translator, ofile)
             lines_count += 1
             if lines_count % 1000 == 0:
                 print('\n{} total lines\n{} total sentences'.format(lines_count, total_sents_count))
@@ -184,6 +185,8 @@ def translate_ambiguous_sentence(pattern_list, coverage_item, ambig_chunks_count
         for sentence_segment in sentence_segments:
             sentence_segment.append(translator.translate(sentence_segment[2]))
 
+        print(sentence_segments)
+
         # second, translate each segment with each of the rules,
         # and make full sentence, where other segments are translated with default rules
         for j, sentence_segment in enumerate(sentence_segments):
@@ -191,8 +194,11 @@ def translate_ambiguous_sentence(pattern_list, coverage_item, ambig_chunks_count
                                                            ambiguous_rules[sentence_segment[0]],
                                                            sentence_segment[1],
                                                            sentence_segment[2], rule_id_map)
+
             output_list = []
+
             for rule, translation in translation_list:
+                #print('blya', translation)
                 translated_sentence = ' '.join(sentence_segment[3]
                                                     for sentence_segment
                                                         in sentence_segments[:j]) +\
@@ -223,12 +229,16 @@ def translate_ambiguous_segment(weighted_translator, rule_group,
         oroot = etree.Element('transfer-weights')
         et_rulegroup = etree.SubElement(oroot, 'rule-group')
         for rule in rule_group:
-            et_rule = make_et_rule(str(rule), et_rulegroup, rule_id_map)
+            #et_rule = make_et_rule(str(rule), et_rulegroup, rule_id_map)
             if rule == focus_rule:
+                et_rule = make_et_rule(str(rule), et_rulegroup, rule_id_map)
                 et_pattern = make_et_pattern(et_rule, pattern)
 
         etree.ElementTree(oroot).write(tmpweights_fname,
                                        encoding='utf-8', xml_declaration=True)
+
+        with open(tmpweights_fname, 'r', encoding="utf-8") as file:
+            print(file.read())
 
         # translate using created weights file
         translation = weighted_translator.translate(sent_line, tmpweights_fname)
@@ -288,6 +298,7 @@ def score_sentences(ambig_sentences_fname, model, prefix, generalize=False):
     print('Scored {} chunks, {} sentences in {:.2f}'.format(chunk_counter, sentence_counter, clock() - btime))
     return ofname
 
+
 def make_et_pattern(et_rule, tokens, weight=1.):
     """
     Make pattern element for xml tree
@@ -305,13 +316,17 @@ def make_et_pattern(et_rule, tokens, weight=1.):
         if lemma != '*':
             et_pattern_item.attrib['lemma'] = lemma
         et_pattern_item.attrib['tags'] = tags
+
+
     return et_pattern
 
 def make_et_rule(rule_number, et_rulegroup, rule_map, rule_xmls=None):
     """
     Make rule element for xml tree.
     """
+
     et_rule = etree.SubElement(et_rulegroup, 'rule')
+
     if rule_xmls is not None:
         # this part is used for final weights file
         # copy rule attributes from transfer file
@@ -599,6 +614,7 @@ def learn_from_monolingual(config):
                                                   tixbasepath, binbasepath,
                                                   rule_id_map)
 
+
     # load language model
     print('Loading language model.')
     btime = clock()
@@ -610,8 +626,7 @@ def learn_from_monolingual(config):
                                    config.get('LEARNING', 'generalize') == 'yes')
 
     # sum up weights for rule-pattern and make unprunned xml
-    weights_fname = make_xml_transfer_weights_mono(scores_fname, prefix, 
-                                                   rule_id_map, rule_xmls)
+    weights_fname = make_xml_transfer_weights_mono(scores_fname, prefix, rule_id_map, rule_xmls)
 
     # prune weights file
     prunned_fname = prune_xml_transfer_weights(using_lxml, weights_fname)
