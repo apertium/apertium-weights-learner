@@ -151,3 +151,90 @@ class weightedPartialTranslator():
             char = self.autogen.stdout.read(1)
 
         return apertium_re.sub('', (b''.join(autogen_output)).decode('utf-8').replace('[][\n]',''))
+
+class oneMoreTranslator():
+    """
+    Wrapper for part of Apertium pipeline
+    going from bidix lookup to the generation.
+    It is missing 1st-stage transfer at init,
+    because transfer is invoked at translation
+    with provided weights file.
+    """
+    def __init__(self):
+        """
+        On initialization, fragments of Apertium pipeline
+        are invoked with '-z' option (null flush)
+        and remain active waiting for input.
+        """
+        self.tixfname = '/home/deltamachine/apertium/apertium-en-es/apertium-en-es.en-es'
+        self.binfname = '/home/deltamachine/apertium/apertium-en-es/en-es'
+
+        self.autobil = Popen(['lt-proc', '-b', '-z', 
+                              self.binfname + '.autobil.bin'
+                             ],
+                             stdin = PIPE, stdout = PIPE)
+
+        # transfer is missing here
+        # it is invoked during translation
+        # using provided transfer weights file 
+
+        self.interchunk = Popen(['apertium-interchunk', '-z',
+                                 self.tixfname + '.t2x',
+                                 self.binfname + '.t2x.bin'
+                                ],
+                                stdin = PIPE, stdout = PIPE)
+        self.postchunk = Popen(['apertium-postchunk', '-z',
+                                self.tixfname + '.t2x',
+                                self.binfname + '.t2x.bin'
+                               ],
+                               stdin = self.interchunk.stdout, stdout = PIPE)
+        self.autogen = Popen(['lt-proc', '-g', '-z',
+                              self.binfname + '.autogen.bin'
+                             ],
+                             stdin = self.postchunk.stdout, stdout = PIPE)
+
+    def translate(self, string):
+        """
+        Convert input string to bytes,
+        send it to the pipeline,
+        return the result converted to utf-8.
+        """
+        string = string.strip() + '[][\n]'
+
+        if type(string) == type(''): 
+            bstring = bytes(string, 'utf-8')
+        else:
+            bstring = string  
+
+        # start going through null flush pipeline
+        self.autobil.stdin.write(bstring)
+        self.autobil.stdin.write(b'\0')
+        self.autobil.stdin.flush()
+
+        char = self.autobil.stdout.read(1)
+        autobil_output = []
+        while char and char != b'\0':
+            autobil_output.append(char)
+            char = self.autobil.stdout.read(1)
+
+        # make weighted transfer
+        transfer = Popen(['apertium-transfer', '-b',
+                          '/home/deltamachine/Desktop/tmp.t1x', 
+                          '/home/deltamachine/Desktop/tmp.t1x.bin',
+                         ],
+                         stdin = PIPE, stdout = PIPE)
+
+        transfer_output, err = transfer.communicate(b''.join(autobil_output))
+
+        # resume going through null flush pipeline
+        self.interchunk.stdin.write(transfer_output)
+        self.interchunk.stdin.write(b'\0')
+        self.interchunk.stdin.flush()
+
+        char = self.autogen.stdout.read(1)
+        autogen_output = []
+        while char and char != b'\0':
+            autogen_output.append(char)
+            char = self.autogen.stdout.read(1)
+
+        return apertium_re.sub('', (b''.join(autogen_output)).decode('utf-8').replace('[][\n]',''))
