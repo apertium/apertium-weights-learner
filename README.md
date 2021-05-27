@@ -1,6 +1,6 @@
 # apertium-weights-learner
 
-This is a python3 script that can be used for transfer weights training (see http://wiki.apertium.org/wiki/Ideas_for_Google_Summer_of_Code/Weighted_transfer_rules). For now, it only allows for fully lexicalized patterns to be extracted (i.e., a sequence of tokens with lemmas and full sets of tags).
+This is a python3 script that can be used for transfer weights training (see https://wiki.apertium.org/wiki/Ideas_for_Google_Summer_of_Code/Weighted_transfer_rules). For now, it only allows for fully lexicalized patterns to be extracted (i.e., a sequence of tokens with lemmas and full sets of tags).
 
 ## Prerequisites
 To run this version of transfer weights training for a given language pair, you need:
